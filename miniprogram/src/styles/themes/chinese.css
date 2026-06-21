@@ -1,0 +1,45 @@
+/* 中国风主题 - 朱砂赤金配色 (温润羊脂玉与朱砂红) */
+.theme-chinese {
+  --primary-color: #b81d22;
+  --primary-light: #d8282f;
+  --primary-dark: #800e13;
+  --secondary-color: #b5893d;
+  --secondary-light: #e6c387;
+
+  --text-color: #1a0f0a;
+  --text-secondary: #4a3830;
+  --text-light: #7c685f;
+
+  --bg-color: #faf8f2;
+  --bg-secondary: #f3edd8;
+  --card-bg: #ffffff;
+  --card-shadow: rgba(184, 29, 34, 0.04);
+
+  --border-color: #e6d4b6;
+  --border-light: #f3eada;
+
+  --success-color: #27ae60;
+  --warning-color: #f39c12;
+  --error-color: #b81d22;
+  --info-color: #2980b9;
+
+  /* 字体 */
+  --font-family-title: 'STKaiti', 'KaiTi', '楷体', serif;
+  --font-family-body: 'STSong', 'SimSun', '宋体', serif;
+
+  /* 圆角 */
+  --border-radius-sm: 8rpx;
+  --border-radius-md: 12rpx;
+  --border-radius-lg: 20rpx;
+  --border-radius-xl: 28rpx;
+
+  /* 间距 */
+  --spacing-xs: 8rpx;
+  --spacing-sm: 16rpx;
+  --spacing-md: 24rpx;
+  --spacing-lg: 32rpx;
+  --spacing-xl: 48rpx;
+
+  /* 装饰元素 */
+  --decoration-bg: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="60" x="15" font-size="65" fill="%23b81d22" opacity="0.03">福</text></svg>');
+}

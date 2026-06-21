@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesson 1: Dify 工作流核心概念与开发自动化思维</title>
+    <style>
+        /* Tufte-inspired Premium Design System */
+        :root {
+            --bg-color: #fffff8;
+            --text-color: #111111;
+            --aside-text-color: #555555;
+            --accent-color: #8c1d40;
+            --border-color: #e0e0d8;
+            --code-bg: #f5f5ee;
+            --success-color: #2e7d32;
+            --error-color: #c62828;
+            --quiz-card-bg: #fcfcf6;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: "Georgia", "Times New Roman", serif;
+            line-height: 1.6;
+            margin: 0 auto;
+            max-width: 900px;
+            padding: 2rem;
+            text-rendering: optimizeLegibility;
+        }
+
+        header {
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 1rem;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: normal;
+            margin: 0 0 0.5rem 0;
+            color: var(--accent-color);
+        }
+
+        .meta {
+            font-family: sans-serif;
+            font-size: 0.9rem;
+            color: var(--aside-text-color);
+        }
+
+        main {
+            display: flex;
+            flex-direction: row;
+            gap: 3rem;
+        }
+
+        .content {
+            flex: 2;
+            min-width: 0;
+        }
+
+        aside {
+            flex: 1;
+            font-size: 0.85rem;
+            color: var(--aside-text-color);
+            font-style: italic;
+            border-left: 1px dashed var(--border-color);
+            padding-left: 1rem;
+            height: fit-content;
+        }
+
+        @media (max-width: 768px) {
+            main {
+                flex-direction: column;
+            }
+            aside {
+                border-left: none;
+                border-top: 1px dashed var(--border-color);
+                padding-left: 0;
+                padding-top: 1rem;
+            }
+        }
+
+        h2 {
+            font-family: sans-serif;
+            font-size: 1.4rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.3rem;
+            margin-top: 2rem;
+        }
+
+        p, ul, ol {
+            font-size: 1.05rem;
+        }
+
+        code {
+            font-family: "Consolas", "Courier New", monospace;
+            background-color: var(--code-bg);
+            padding: 0.1rem 0.3rem;
+            border-radius: 3px;
+            font-size: 0.9rem;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            padding: 1rem;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        pre code {
+            padding: 0;
+            background: none;
+        }
+
+        .highlight-box {
+            background-color: var(--code-bg);
+            border-left: 4px solid var(--accent-color);
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        /* Interactive Quiz Styles */
+        .quiz-container {
+            margin-top: 2rem;
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            border-radius: 8px;
+            background-color: var(--quiz-card-bg);
+        }
+
+        .quiz-title {
+            font-family: sans-serif;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            color: var(--accent-color);
+        }
+
+        .question {
+            margin-bottom: 1.5rem;
+            border-bottom: 1px dashed var(--border-color);
+            padding-bottom: 1rem;
+        }
+
+        .question:last-child {
+            border-bottom: none;
+        }
+
+        .options-list {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .option-item {
+            margin: 0.5rem 0;
+        }
+
+        .option-button {
+            width: 100%;
+            text-align: left;
+            background-color: #ffffff;
+            border: 1px solid var(--border-color);
+            padding: 0.8rem 1rem;
+            font-family: sans-serif;
+            font-size: 0.95rem;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .option-button:hover {
+            background-color: #f0f0e8;
+            border-color: #999;
+        }
+
+        .option-button.correct {
+            background-color: #e8f5e9;
+            border-color: var(--success-color);
+            color: var(--success-color);
+            font-weight: bold;
+        }
+
+        .option-button.incorrect {
+            background-color: #ffebee;
+            border-color: var(--error-color);
+            color: var(--error-color);
+        }
+
+        .feedback {
+            margin-top: 0.5rem;
+            font-family: sans-serif;
+            font-size: 0.9rem;
+            font-weight: bold;
+            display: none;
+        }
+
+        .feedback.correct {
+            color: var(--success-color);
+        }
+
+        .feedback.incorrect {
+            color: var(--error-color);
+        }
+
+        .footer {
+            margin-top: 4rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+            font-family: sans-serif;
+            font-size: 0.9rem;
+            color: var(--aside-text-color);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .footer a {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>第一课：Dify 工作流核心概念与自动化思维</h1>
+        <div class="meta">目标：明确 Chatflow 与 Workflow 的边界，理清数据流的传递规则</div>
+    </header>
+
+    <main>
+        <div class="content">
+            <h2>1. 前端开发者的自动化视角</h2>
+            <p>作为前端开发者，我们习惯于编写 <code>function</code>。一个函数包含：<strong>输入 (Input) ➔ 逻辑处理 (Process) ➔ 输出 (Output)</strong>。同样，AI 软件中的工作流本质上也是一个<strong>可视化的复杂函数</strong>。</p>
+            <p>在 Dify 中，有两类应用极易混淆：</p>
+            <ul>
+                <li><strong>Chatflow（聊天流）</strong>：为对话设计，自带 Session、上下文管理和历史记录，适合做聊天机器人。</li>
+                <li><strong>Workflow（工作流）</strong>：为任务设计，单向执行，输入确定，输出确定，没有隐式的上下文干扰。非常适合作为 <strong>API 服务</strong>，用来跑通自动化流程。</li>
+            </ul>
+            <div class="highlight-box">
+                <strong>开发原则</strong>：进行软件开发自动化（如代码生成、规范检查）时，<strong>永远优先选择 Workflow</strong>。
+            </div>
+
+            <h2>2. 变量：工作流中的“数据链路”</h2>
+            <p>在前端，我们用变量在函数间传递数据。Dify 工作流中也是如此。Dify 中的变量传递遵循以下规则：</p>
+            <ol>
+                <li><strong>起始输入 <code>sys.query</code> 或 <code>Start</code> 节点变量</strong>：工作流的入口参数，类似于 API 请求的 <code>body</code>。</li>
+                <li><strong>节点级输出</strong>：每个节点执行完毕后，会输出一个对象（例如 <code>LLM</code> 节点输出的 <code>text</code>）。</li>
+                <li><strong>链式引用</strong>：后置节点通过 <code>{{#nodeName.variableName#}}</code> 语法，精确读取前置节点的输出。这与我们在 JS 中使用 <code>nodeName.variableName</code> 极其相似。</li>
+            </ol>
+            
+            <p>例如，若我们有一个名为 <code>translate_code</code> 的节点，它的输出是翻译后的代码，那么在下一个节点中，我们通过 <code>{{#translate_code.text#}}</code> 来获取它。</p>
+
+            <h2>3. 推荐学习资源 (Primary Source)</h2>
+            <p>请抽空阅读以下官方文档以加深理解：</p>
+            <ul>
+                <li><a href="https://docs.dify.ai/features/workflow" target="_blank">Dify Workflow 官方指引</a>：详细讲解了各个节点的功能与使用方式。</li>
+            </ul>
+
+            <!-- Interactive Quiz -->
+            <div class="quiz-container">
+                <div class="quiz-title">💡 课后速测 (交互式检索实践)</div>
+                
+                <div class="question" id="q1">
+                    <p><strong>问题 1：</strong> 在 Dify 中，哪种应用类型最适合用来构建确定性的自动化开发 API？</p>
+                    <ul class="options-list">
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q1', 'A')">选项 A：聊天流 (Chatflow)</button></li>
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q1', 'B')">选项 B：工作流 (Workflow)</button></li>
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q1', 'C')">选项 C：智能体 (AgentApp)</button></li>
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q1', 'D')">选项 D：知识库 (Dataset  )</button></li>
+                    </ul>
+                    <div class="feedback correct" id="q1-fb-correct">正确！Workflow 单向、确定性输出，是构建 API 自动化任务的黄金选择。</div>
+                    <div class="feedback incorrect" id="q1-fb-incorrect">不正确。请思考：哪种应用类型不带多轮对话历史的干扰，完全遵循输入输出映射？</div>
+                </div>
+
+                <div class="question" id="q2">
+                    <p><strong>问题 2：</strong> 在 Dify 工作流中，节点之间是如何进行变量传递与数据共享的？</p>
+                    <ul class="options-list">
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q2', 'A')">选项 A：直接在当前节点中声明使用全局的环境变量值</button></li>
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q2', 'B')">选项 B：通过上游节点的输出变量进行链式引用与绑定</button></li>
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q2', 'C')">选项 C：在全局的状态管理器中动态读写各个共享变量</button></li>
+                        <li class="option-item"><button class="option-button" onclick="checkAnswer('q2', 'D')">选项 D：从外部的数据库连接中实时查询并更新节点值</button></li>
+                    </ul>
+                    <div class="feedback correct" id="q2-fb-correct">正确！通过使用双花括号包裹的链式路径，如 {{#node.val#}} 来绑定上游输出。</div>
+                    <div class="feedback incorrect" id="q2-fb-incorrect">不正确。请注意 Dify 使用的双大括号引用语法（如 `{{#node_name.var#}}`），这代表了什么机制？</div>
+                </div>
+            </div>
+
+            <p style="margin-top: 2rem; font-style: italic; color: var(--aside-text-color);">
+                💡 <strong>温馨提示</strong>：完成上述测试后，请在终端聊天框中向 AI 助教反馈您的测试情况，或提出任何疑问，我们将即刻进入下一阶段——在 Dify 中实战自定义 JS 节点。
+            </p>
+        </div>
+
+        <aside>
+            <h4>助教侧记</h4>
+            <p>前端的 <code>Array.map</code>, <code>reduce</code> 思维对于 AI 工作流的“格式化与拼接”非常管用。在随后的第二课中，我们将探讨如何在 Dify 沙箱中跑 JavaScript 节点。</p>
+            <hr style="border: none; border-top: 1px dashed var(--border-color); margin: 1.5rem 0;">
+            <h4>文档链接</h4>
+            <ul>
+                <li><a href="../MISSION.md">🎯 学习使命 (MISSION.md)</a></li>
+                <li><a href="../RESOURCES.md">📚 资源清单 (RESOURCES.md)</a></li>
+                <li><a href="../GLOSSARY.md">📖 术语词典 (GLOSSARY.md)</a></li>
+            </ul>
+        </aside>
+    </main>
+
+    <footer class="footer">
+        <span>当前进度：1 / 4 课时</span>
+        <span>下一课：<a href="#">Dify 中的 JS 代码节点沙箱实践 ➔</a></span>
+    </footer>
+
+    <script>
+        const answers = {
+            q1: 'B',
+            q2: 'B'
+        };
+
+        function checkAnswer(qId, selected) {
+            const container = document.getElementById(qId);
+            const buttons = container.querySelectorAll('.option-button');
+            const correctFb = document.getElementById(qId + '-fb-correct');
+            const incorrectFb = document.getElementById(qId + '-fb-incorrect');
+
+            // Disable all buttons in this question
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                const optLetter = btn.textContent.trim().substring(3, 4); // Extract "A", "B", "C", "D"
+                
+                if (optLetter === answers[qId]) {
+                    btn.classList.add('correct');
+                } else if (optLetter === selected) {
+                    btn.classList.add('incorrect');
+                }
+            });
+
+            if (selected === answers[qId]) {
+                correctFb.style.display = 'block';
+                incorrectFb.style.display = 'none';
+            } else {
+                correctFb.style.display = 'none';
+                incorrectFb.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

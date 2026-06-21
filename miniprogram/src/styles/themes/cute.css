@@ -1,0 +1,45 @@
+/* 卡通可爱主题 - 粉嫩活泼配色 */
+.theme-cute {
+  --primary-color: #ff6b9d;
+  --primary-light: #ff8ab5;
+  --primary-dark: #e74c8c;
+  --secondary-color: #a8e6cf;
+  --secondary-light: #c7f0db;
+
+  --text-color: #5a4a6a;
+  --text-secondary: #8b7a9e;
+  --text-light: #b8a9c9;
+
+  --bg-color: #fff5f9;
+  --bg-secondary: #ffe8f0;
+  --card-bg: #ffffff;
+  --card-shadow: rgba(255, 107, 157, 0.15);
+
+  --border-color: #ffd6e7;
+  --border-light: #ffe8f0;
+
+  --success-color: #a8e6cf;
+  --warning-color: #ffd93d;
+  --error-color: #ff6b6b;
+  --info-color: #6bcbff;
+
+  /* 字体 */
+  --font-family-title: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* 圆角 */
+  --border-radius-sm: 12rpx;
+  --border-radius-md: 20rpx;
+  --border-radius-lg: 32rpx;
+  --border-radius-xl: 48rpx;
+
+  /* 间距 */
+  --spacing-xs: 12rpx;
+  --spacing-sm: 20rpx;
+  --spacing-md: 28rpx;
+  --spacing-lg: 36rpx;
+  --spacing-xl: 52rpx;
+
+  /* 可爱装饰 */
+  --decoration-emoji: '🌸';
+}

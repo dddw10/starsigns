@@ -1,0 +1,42 @@
+/* 现代简约主题 - 极光幻彩与微光玻璃 */
+.theme-modern {
+  --primary-color: #6366f1;
+  --primary-light: #818cf8;
+  --primary-dark: #4f46e5;
+  --secondary-color: #06b6d4;
+  --secondary-light: #22d3ee;
+
+  --text-color: #0f172a;
+  --text-secondary: #475569;
+  --text-light: #94a3b8;
+
+  --bg-color: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --card-bg: #ffffff;
+  --card-shadow: 0 8rpx 30rpx rgba(99, 102, 241, 0.04);
+
+  --border-color: #e2e8f0;
+  --border-light: #f1f5f9;
+
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+  --info-color: #3b82f6;
+
+  /* 字体 */
+  --font-family-title: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* 圆角 */
+  --border-radius-sm: 8rpx;
+  --border-radius-md: 16rpx;
+  --border-radius-lg: 24rpx;
+  --border-radius-xl: 32rpx;
+
+  /* 间距 */
+  --spacing-xs: 12rpx;
+  --spacing-sm: 20rpx;
+  --spacing-md: 28rpx;
+  --spacing-lg: 36rpx;
+  --spacing-xl: 52rpx;
+}

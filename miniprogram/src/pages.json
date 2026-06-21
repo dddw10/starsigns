@@ -1,0 +1,222 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^uni-(.*)": "@dcloudio/uni-ui/lib/uni-$1/uni-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "算命大师",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/user/index",
+      "style": {
+        "navigationBarTitleText": "个人中心"
+      }
+    },
+    {
+      "path": "pages/chat/index",
+      "style": {
+        "navigationBarTitleText": "AI命理大师",
+        "navigationStyle": "custom"
+      }
+    }
+  ],
+  "subPackages": [
+    {
+      "root": "pages/bazi",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "八字排盘"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/constellation",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "星座运势"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/tarot",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "塔罗占卜"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/name",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "姓名测算"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/fengshui",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "风水分析"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/face",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "面相手相"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/result",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "测算结果"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/vip",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "会员中心"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/history",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "历史记录"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/push-settings",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "推送设置"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/share",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "分享结果"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/legal",
+      "pages": [
+        {
+          "path": "disclaimer/index",
+          "style": {
+            "navigationBarTitleText": "免责声明"
+          }
+        },
+        {
+          "path": "privacy/index",
+          "style": {
+            "navigationBarTitleText": "隐私政策"
+          }
+        },
+        {
+          "path": "agreement/index",
+          "style": {
+            "navigationBarTitleText": "用户协议"
+          }
+        }
+      ]
+    },
+    {
+      "root": "pages/about",
+      "pages": [
+        {
+          "path": "index",
+          "style": {
+            "navigationBarTitleText": "关于我们"
+          }
+        }
+      ]
+    }
+  ],
+  "preloadRule": {
+    "pages/index/index": {
+      "network": "all",
+      "packages": ["pages/bazi", "pages/constellation", "pages/tarot"]
+    }
+  },
+  "tabBar": {
+    "color": "#999999",
+    "selectedColor": "#e74c3c",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "static/tabbar/home.png",
+        "selectedIconPath": "static/tabbar/home-active.png"
+      },
+      {
+        "pagePath": "pages/user/index",
+        "text": "我的",
+        "iconPath": "static/tabbar/profile.png",
+        "selectedIconPath": "static/tabbar/profile-active.png"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "算命大师",
+    "navigationBarBackgroundColor": "#f8f8f8",
+    "backgroundColor": "#f8f8f8"
+  },
+  "condition": {
+    "list": []
+  }
+}

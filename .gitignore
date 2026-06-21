@@ -1,0 +1,33 @@
+# Dependency directories
+**/node_modules/
+node_modules/
+
+# Build outputs
+**/dist/
+dist/
+
+# Local env files (contain private API keys/secrets)
+**/.env
+**/.env.production
+.env
+.env.production
+.env.local
+.env.*.local
+
+# Logs
+**/logs/
+logs/
+*.log
+docker_stdout.log
+docker_stderr.log
+server/server-dev.log
+
+# Deploy bundles & zips
+*.zip
+server-deploy.zip
+
+# System/IDE files
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db

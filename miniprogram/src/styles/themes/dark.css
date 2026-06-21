@@ -1,0 +1,46 @@
+/* 神秘暗黑主题 - 星云幻境 (深渊蓝黑与星轨紫) */
+.theme-dark {
+  --primary-color: #8b5cf6;
+  --primary-light: #a78bfa;
+  --primary-dark: #7c3aed;
+  --secondary-color: #f59e0b;
+  --secondary-light: #fbbf24;
+
+  --text-color: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-light: #71717a;
+
+  --bg-color: #0b0f19;
+  --bg-secondary: #161b26;
+  --card-bg: #111827;
+  --card-shadow: rgba(139, 92, 246, 0.08);
+
+  --border-color: #221d3f;
+  --border-light: #2c274d;
+
+  --success-color: #10b981;
+  --warning-color: #fbbf24;
+  --error-color: #ef4444;
+  --info-color: #60a5fa;
+
+  /* 字体 */
+  --font-family-title: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* 圆角 */
+  --border-radius-sm: 8rpx;
+  --border-radius-md: 12rpx;
+  --border-radius-lg: 20rpx;
+  --border-radius-xl: 28rpx;
+
+  /* 间距 */
+  --spacing-xs: 10rpx;
+  --spacing-sm: 18rpx;
+  --spacing-md: 26rpx;
+  --spacing-lg: 34rpx;
+  --spacing-xl: 50rpx;
+
+  /* 发光效果 */
+  --glow-color: rgba(139, 92, 246, 0.25);
+  --glow-shadow: 0 0 25rpx rgba(139, 92, 246, 0.4);
+}
