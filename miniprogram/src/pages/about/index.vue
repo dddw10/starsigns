@@ -39,6 +39,11 @@
     <view class="copyright">
       <text class="copyright-text">© 2024 算命小程序 版权所有</text>
       <text class="copyright-text">本小程序仅供娱乐参考</text>
+      <!-- #ifdef H5 -->
+      <view class="icp-container">
+        <a href="https://beian.miit.gov.cn/" target="_blank" class="icp-link">粤ICP备2025416691号</a>
+      </view>
+      <!-- #endif -->
     </view>
   </view>
 </template>
@@ -159,5 +164,20 @@ const navigateTo = (url) => {
   color: var(--text-secondary, #999);
   display: block;
   margin-bottom: 8rpx;
+}
+
+.icp-container {
+  margin-top: 12rpx;
+}
+
+.icp-link {
+  font-size: 24rpx;
+  color: var(--text-secondary, #999);
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.icp-link:hover {
+  color: var(--primary-color, #c41e3a);
 }
 </style>

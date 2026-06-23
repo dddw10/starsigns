@@ -88,6 +88,12 @@
       <text class="push-arrow">›</text>
     </view>
 
+    <!-- #ifdef H5 -->
+    <view class="icp-footer">
+      <a href="https://beian.miit.gov.cn/" target="_blank" class="icp-link">粤ICP备2025416691号</a>
+    </view>
+    <!-- #endif -->
+
     <!-- 极简生辰配置模态弹窗 -->
     <view class="modal-mask" v-if="showBirthModal" @click="closeBirthDrawer">
       <view class="modal-container" @click.stop>
@@ -1014,5 +1020,21 @@ onMounted(() => {
   0%, 100% { transform: rotate(0); }
   25% { transform: rotate(-8deg); }
   75% { transform: rotate(8deg); }
+}
+
+.icp-footer {
+  text-align: center;
+  padding: 40rpx 0;
+  margin-top: 20rpx;
+  width: 100%;
+}
+.icp-link {
+  font-size: 24rpx;
+  color: var(--text-secondary, #999);
+  text-decoration: none;
+  transition: color 0.3s;
+}
+.icp-link:hover {
+  color: var(--primary-color, #c41e3a);
 }
 </style>
