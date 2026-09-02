@@ -50,8 +50,8 @@ exports.updateProfile = async (req, res, next) => {
 exports.updateBirthInfo = async (req, res, next) => {
   try {
     const userId = req.user.userId;
-    const { solarDate, lunarDate, birthTime } = req.body;
-    const result = await userService.updateBirthInfo(userId, { solarDate, lunarDate, birthTime });
+    const { solarDate, lunarDate, birthTime, calendar } = req.body;
+    const result = await userService.updateBirthInfo(userId, { solarDate, lunarDate, birthTime, calendar });
     res.json({
       code: 0,
       message: '更新成功',
@@ -71,21 +71,6 @@ exports.getStats = async (req, res, next) => {
       code: 0,
       message: 'success',
       data: stats,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// 获取会员状态
-exports.getMemberStatus = async (req, res, next) => {
-  try {
-    const userId = req.user.userId;
-    const status = await userService.getMemberStatus(userId);
-    res.json({
-      code: 0,
-      message: 'success',
-      data: status,
     });
   } catch (error) {
     next(error);
@@ -132,6 +117,52 @@ exports.getUserFeedbackList = async (req, res, next) => {
     res.json({
       code: 0,
       message: 'success',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 绑定手机号
+exports.bindPhone = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const { code } = req.body;
+    const result = await userService.bindPhone(userId, code);
+    res.json({
+      code: 0,
+      message: '绑定成功',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// H5 注册
+exports.register = async (req, res, next) => {
+  try {
+    const { username, password } = req.body;
+    const result = await userService.register(username, password);
+    res.json({
+      code: 0,
+      message: '注册成功',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// H5 账号登录
+exports.loginAccount = async (req, res, next) => {
+  try {
+    const { username, password } = req.body;
+    const result = await userService.loginAccount(username, password);
+    res.json({
+      code: 0,
+      message: '登录成功',
       data: result,
     });
   } catch (error) {

@@ -1,5 +1,6 @@
 const Pet = require('../models/Pet');
 const User = require('../models/User');
+const { getBeijingDateString } = require('../utils/date');
 
 // 根据出生日期获取神兽类型
 function getPetTypeByBirthDate(solarDateStr) {
@@ -53,17 +54,57 @@ function getLevelUpExp(level) {
   return 100 * level * level;
 }
 
+// 跨天判定统一按北京时间，不跟服务器本地时区走
+function getBeijingDayString(date) {
+  if (!date) return '';
+  const time = date instanceof Date ? date.getTime() : new Date(date).getTime();
+  if (Number.isNaN(time)) return '';
+  return getBeijingDateString(time);
+}
+
+// 饱食度 -2/小时；心情 -15/24小时
+const HUNGER_DECAY_PER_HOUR = 2;
+const MOOD_DECAY_PER_HOUR = 15 / 24;
+
+// 按各自的时间戳分别结算两条衰减，只把「已经兑现成整点数」的那部分时间推进，
+// 剩下的零头留给下一次（两条共用一个时间戳时，慢的那条零头会被快的那条清掉）
+function applyPetDecay(pet, now) {
+  const hungerClock = pet.lastDecayAt || now;
+  const moodClock = pet.lastMoodDecayAt || pet.lastDecayAt || now;
+
+  const hungerHours = (now.getTime() - new Date(hungerClock).getTime()) / (3600 * 1000);
+  if (hungerHours > 0) {
+    const hungerDecay = Math.floor(hungerHours * HUNGER_DECAY_PER_HOUR);
+    if (hungerDecay > 0) {
+      pet.hunger = Math.max(0, pet.hunger - hungerDecay);
+      pet.lastDecayAt = new Date(
+        new Date(hungerClock).getTime() + (hungerDecay / HUNGER_DECAY_PER_HOUR) * 3600 * 1000
+      );
+    }
+  }
+
+  const moodHours = (now.getTime() - new Date(moodClock).getTime()) / (3600 * 1000);
+  if (moodHours > 0) {
+    const moodDecay = Math.floor(moodHours * MOOD_DECAY_PER_HOUR);
+    if (moodDecay > 0) {
+      pet.mood = Math.max(0, pet.mood - moodDecay);
+      pet.lastMoodDecayAt = new Date(
+        new Date(moodClock).getTime() + (moodDecay / MOOD_DECAY_PER_HOUR) * 3600 * 1000
+      );
+    } else if (!pet.lastMoodDecayAt) {
+      // 老数据没有这个字段，补上，避免每次读都从 lastDecayAt 折算
+      pet.lastMoodDecayAt = new Date(moodClock);
+    }
+  }
+}
+
 // 1. 获取宠物状态
 exports.getPetStatus = async (req, res, next) => {
   try {
     const userId = req.user.userId;
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.json({ code: 404, message: '用户不存在' });
-    }
-
     let pet = await Pet.findOne({ userId });
-    const userBirthDate = user.birthInfo && user.birthInfo.solarDate;
+    const user = await User.findById(userId);
+    const userBirthDate = user && user.birthInfo && user.birthInfo.solarDate;
 
     // 若宠物不存在，初始化一个
     if (!pet) {
@@ -90,35 +131,19 @@ exports.getPetStatus = async (req, res, next) => {
         }
       }
 
-      // 计算自然衰减 (每小时饱食度-2，心情在24小时不登录时-15)
+      // 计算自然衰减
       const now = new Date();
-      const timeDiffMs = now - pet.lastDecayAt;
-      if (timeDiffMs > 0) {
-        const hoursPassed = timeDiffMs / (3600 * 1000);
-        
-        // 饱食度自然流逝 -2/小时
-        const hungerDecay = Math.floor(hoursPassed * 2);
-        // 心情自然流逝 -15/24小时 (约 0.625/小时)
-        const moodDecay = Math.floor(hoursPassed * (15 / 24));
-
-        if (hungerDecay > 0 || moodDecay > 0) {
-          pet.hunger = Math.max(0, pet.hunger - hungerDecay);
-          pet.mood = Math.max(0, pet.mood - moodDecay);
-          
-          // 保留未够一整小时的小数部分，使得时间累计精确
-          const elapsedDecayedMs = Math.max(hungerDecay / 2, moodDecay / (15 / 24)) * 3600 * 1000;
-          pet.lastDecayAt = new Date(pet.lastDecayAt.getTime() + elapsedDecayedMs);
-        }
-      }
+      applyPetDecay(pet, now);
 
       // 检查跨天重置抚摸次数
-      const lastInteractDate = new Date(pet.lastInteractedAt).toDateString();
-      const todayDate = now.toDateString();
-      if (lastInteractDate !== todayDate) {
+      if (getBeijingDayString(pet.lastInteractedAt) !== getBeijingDayString(now)) {
         pet.dailyInteractCount = 0;
       }
 
-      await pet.save();
+      // 纯读取时不要写库：状态接口每次进页面都会调
+      if (pet.isModified()) {
+        await pet.save();
+      }
     }
 
     res.json({
@@ -215,10 +240,7 @@ exports.interactPet = async (req, res, next) => {
     }
 
     const now = new Date();
-    const lastInteractDate = new Date(pet.lastInteractedAt).toDateString();
-    const todayDate = now.toDateString();
-
-    if (lastInteractDate !== todayDate) {
+    if (getBeijingDayString(pet.lastInteractedAt) !== getBeijingDayString(now)) {
       pet.dailyInteractCount = 0;
     }
 
@@ -309,36 +331,14 @@ exports.drawPetReward = async (req, res, next) => {
     pet.giftBoxes -= 1;
 
     // 抽奖概率划分:
-    // 金色传说 (2%): 30天会员体验
-    // 极佳好运 (8%): 7天会员体验
-    // 凡品好礼 (30%): 2个太极蟠桃
-    // 阳光普照 (60%): 200经验值 或 3个粗粮仙草 (各占30%)
+    // 凡品好礼 (10%): 2个太极蟠桃
+    // 阳光普照 (90%): 200经验值 或 3个粗粮仙草
     const rand = Math.random() * 100;
     let rewardType = 'white';
     let rewardName = '';
     let rewardDesc = '';
 
-    if (rand < 2) {
-      rewardType = 'gold';
-      rewardName = '30天会员卡';
-      rewardDesc = '已为您自动激活/顺延30天VIP会员特权！';
-
-      // 赠送30天会员
-      user.memberLevel = 1;
-      const baseDate = (user.memberExpireAt && user.memberExpireAt > new Date()) ? user.memberExpireAt : new Date();
-      user.memberExpireAt = new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-      await user.save();
-    } else if (rand < 10) {
-      rewardType = 'blue';
-      rewardName = '7天会员卡';
-      rewardDesc = '已为您自动激活/顺延7天VIP会员特权！';
-
-      // 赠送7天会员
-      user.memberLevel = 1;
-      const baseDate = (user.memberExpireAt && user.memberExpireAt > new Date()) ? user.memberExpireAt : new Date();
-      user.memberExpireAt = new Date(baseDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-      await user.save();
-    } else if (rand < 40) {
+    if (rand < 10) {
       rewardType = 'green';
       rewardName = '太极蟠桃';
       rewardDesc = '福袋飘出仙气，您的神兽库房增加了 2 颗太极蟠桃！';

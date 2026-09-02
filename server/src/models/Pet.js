@@ -72,8 +72,13 @@ const petSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    // 上次扣除自然流逝时间
+    // 上次扣除饱食度自然流逝的时间
     lastDecayAt: {
+      type: Date,
+      default: Date.now,
+    },
+    // 上次扣除心情自然流逝的时间（心情衰减慢，必须独立记时，否则零头会被饱食度推掉）
+    lastMoodDecayAt: {
       type: Date,
       default: Date.now,
     },
@@ -82,9 +87,6 @@ const petSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
-
-// 索引定义
-petSchema.index({ userId: 1 });
 
 const Pet = mongoose.model('Pet', petSchema);
 

@@ -1,5 +1,12 @@
 // 参数校验中间件
 const { body, param, query, validationResult } = require('express-validator');
+const { BIRTH_TIME_HOURS } = require('../algorithms/bazi');
+
+// 合法时辰。排盘时未识别的时辰会静默落到子时，所以这里必须挡住
+const BIRTH_TIMES = Object.keys(BIRTH_TIME_HOURS);
+const SOLAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// 历法。lunar 表示传上来的日期按农历解析，服务端会先折算成公历再排盘
+const CALENDARS = ['solar', 'lunar'];
 
 // 处理校验结果
 function handleValidation(req, res, next) {
@@ -25,18 +32,33 @@ const userValidation = {
     handleValidation,
   ],
 
+  // H5 账号密码注册/登录。服务层也有同样的判断，这里挡在前面是为了
+  // 不让超长字段进到 findOne/hash 里，也让报错统一走 400
+  accountAuth: [
+    body('username').notEmpty().withMessage('用户名不能为空')
+      .isString().withMessage('用户名格式不正确')
+      .isLength({ max: 32 }).withMessage('用户名不能超过32个字符'),
+    body('password').notEmpty().withMessage('密码不能为空')
+      .isString().withMessage('密码格式不正确')
+      .isLength({ min: 6, max: 64 }).withMessage('密码长度需在6到64位之间'),
+    handleValidation,
+  ],
+
   // 更新用户信息
   updateProfile: [
     body('nickname').optional().isString().withMessage('昵称格式不正确'),
-    body('avatar').optional().isURL().withMessage('头像地址格式不正确'),
+    body('avatar').optional().isString().withMessage('头像地址格式不正确'),
     body('gender').optional().isIn([0, 1, 2]).withMessage('性别值无效'),
     handleValidation,
   ],
 
   // 更新生辰八字
   updateBirthInfo: [
-    body('solarDate').notEmpty().withMessage('阳历日期不能为空'),
-    body('birthTime').notEmpty().withMessage('出生时辰不能为空'),
+    body('solarDate').notEmpty().withMessage('出生日期不能为空')
+      .matches(SOLAR_DATE_RE).withMessage('出生日期格式应为 YYYY-MM-DD'),
+    body('birthTime').notEmpty().withMessage('出生时辰不能为空')
+      .isIn(BIRTH_TIMES).withMessage('出生时辰值无效'),
+    body('calendar').optional().isIn(CALENDARS).withMessage('历法值无效'),
     handleValidation,
   ],
 
@@ -54,9 +76,12 @@ const userValidation = {
 const fortuneValidation = {
   // 八字算命
   bazi: [
-    body('solarDate').notEmpty().withMessage('阳历日期不能为空'),
-    body('birthTime').notEmpty().withMessage('出生时辰不能为空'),
+    body('solarDate').notEmpty().withMessage('出生日期不能为空')
+      .matches(SOLAR_DATE_RE).withMessage('出生日期格式应为 YYYY-MM-DD'),
+    body('birthTime').notEmpty().withMessage('出生时辰不能为空')
+      .isIn(BIRTH_TIMES).withMessage('出生时辰值无效'),
     body('gender').isIn(['male', 'female']).withMessage('性别值无效'),
+    body('calendar').optional().isIn(CALENDARS).withMessage('历法值无效'),
     handleValidation,
   ],
 
@@ -83,12 +108,16 @@ const fortuneValidation = {
   // 双人八字配对
   baziMatch: [
     body('name1').isLength({ min: 2, max: 10 }).withMessage('您的姓名长度需在2-10个字符之间'),
-    body('solarDate1').notEmpty().withMessage('阳历日期1不能为空'),
-    body('birthTime1').notEmpty().withMessage('出生时辰1不能为空'),
+    body('solarDate1').notEmpty().withMessage('阳历日期1不能为空')
+      .matches(SOLAR_DATE_RE).withMessage('阳历日期1格式应为 YYYY-MM-DD'),
+    body('birthTime1').notEmpty().withMessage('出生时辰1不能为空')
+      .isIn(BIRTH_TIMES).withMessage('出生时辰1值无效'),
     body('gender1').isIn(['male', 'female']).withMessage('性别1值无效'),
     body('name2').isLength({ min: 2, max: 10 }).withMessage('对方的姓名长度需在2-10个字符之间'),
-    body('solarDate2').notEmpty().withMessage('阳历日期2不能为空'),
-    body('birthTime2').notEmpty().withMessage('出生时辰2不能为空'),
+    body('solarDate2').notEmpty().withMessage('阳历日期2不能为空')
+      .matches(SOLAR_DATE_RE).withMessage('阳历日期2格式应为 YYYY-MM-DD'),
+    body('birthTime2').notEmpty().withMessage('出生时辰2不能为空')
+      .isIn(BIRTH_TIMES).withMessage('出生时辰2值无效'),
     body('gender2').isIn(['male', 'female']).withMessage('性别2值无效'),
     body('relationType').optional().isIn(['love', 'business', 'friend']).withMessage('关系类型无效'),
     handleValidation,
@@ -112,29 +141,6 @@ const fortuneValidation = {
     query('page').optional().isInt({ min: 1 }).withMessage('页码格式不正确'),
     query('pageSize').optional().isInt({ min: 1, max: 50 }).withMessage('每页数量格式不正确'),
     query('type').optional().isIn(['bazi', 'daily', 'tarot', 'name', 'fengshui', 'nameMatch', 'baziMatch']).withMessage('类型值无效'),
-    handleValidation,
-  ],
-};
-
-// 支付相关校验
-const paymentValidation = {
-  // 创建订单
-  createOrder: [
-    body('productType').notEmpty().withMessage('商品类型不能为空'),
-    body('productId').optional().isString().withMessage('商品ID格式不正确'),
-    handleValidation,
-  ],
-
-  // 支付回调
-  wechatCallback: [
-    body('resource').notEmpty().withMessage('支付数据不能为空'),
-    handleValidation,
-  ],
-
-  // 申请退款
-  refund: [
-    body('orderNo').notEmpty().withMessage('订单号不能为空'),
-    body('reason').optional().isString(),
     handleValidation,
   ],
 };
@@ -174,7 +180,6 @@ module.exports = {
   handleValidation,
   userValidation,
   fortuneValidation,
-  paymentValidation,
   pushValidation,
   commonValidation,
 };

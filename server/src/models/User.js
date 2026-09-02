@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema(
     // 微信 openid
     openid: {
       type: String,
-      required: true,
+      sparse: true,
       unique: true,
       index: true,
     },
@@ -14,6 +14,18 @@ const userSchema = new mongoose.Schema(
     unionid: {
       type: String,
       sparse: true,
+    },
+
+    // 账号（用于 H5 登录）
+    username: {
+      type: String,
+      sparse: true,
+      unique: true,
+    },
+
+    // 密码（用于 H5 登录）
+    password: {
+      type: String,
     },
 
     // 用户昵称
@@ -66,23 +78,6 @@ const userSchema = new mongoose.Schema(
       },
     },
 
-    // 会员等级 0-普通用户 1-VIP 2-SVIP
-    memberLevel: {
-      type: Number,
-      default: 0,
-    },
-
-    // 会员到期时间
-    memberExpireAt: {
-      type: Date,
-      default: null,
-    },
-
-    // 剩余算命次数
-    fortuneQuota: {
-      type: Number,
-      default: 3,
-    },
 
     // 订阅消息授权状态
     subscribeAccepted: {
@@ -93,7 +88,7 @@ const userSchema = new mongoose.Schema(
     // 推送偏好设置
     pushSettings: {
       pushEnabled: { type: Boolean, default: false },
-      pushTime: { type: String, default: '08:00' },
+      pushTime: { type: String, default: '00:00' },
       pushTypes: {
         dailyFortune: { type: Boolean, default: true },
         general: { type: Boolean, default: true },
@@ -127,30 +122,10 @@ const userSchema = new mongoose.Schema(
 );
 
 // 索引
-userSchema.index({ openid: 1 });
+userSchema.index({ openid: 1 }, { sparse: true });
 userSchema.index({ unionid: 1 });
 userSchema.index({ phone: 1 });
-
-// 虚拟字段：是否为会员
-userSchema.virtual('isMember').get(function () {
-  if (this.memberLevel === 0) return false;
-  if (!this.memberExpireAt) return false;
-  return this.memberExpireAt > new Date();
-});
-
-// 方法：扣除算命次数
-userSchema.methods.deductQuota = function () {
-  if (this.fortuneQuota > 0) {
-    this.fortuneQuota -= 1;
-    return true;
-  }
-  return false;
-};
-
-// 方法：增加算命次数
-userSchema.methods.addQuota = function (count = 1) {
-  this.fortuneQuota += count;
-};
+userSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 const User = mongoose.model('User', userSchema);
 

@@ -8,8 +8,8 @@ const { nameMatchAnalysis: nameMatchAlgorithm } = require('../algorithms/name/ma
 const { doubleBaziAnalysis } = require('../algorithms/bazi/match');
 const { fengshuiAnalysis: fengshuiAlgorithm } = require('../algorithms/fengshui');
 const { getRedis } = require('../config/redis');
-const { getDayGanZhi, TIAN_GAN } = require('../algorithms/bazi/lunar');
 const { GAN_WUXING } = require('../algorithms/bazi/wuxing');
+const { getBeijingDateString } = require('../utils/date');
 
 class FortuneService {
   // 八字算命
@@ -22,26 +22,22 @@ class FortuneService {
       user = await User.findById(userId);
     }
 
-    if (user && user.fortuneQuota <= 0 && user.memberLevel === 0) {
-      throw new Error('算命次数已用完，请充值或升级会员');
-    }
-
     // 执行八字分析
     const result = await baziAlgorithm(data);
 
-    if (user) {
-      // 扣除次数
-      if (user.memberLevel === 0) {
-        user.fortuneQuota -= 1;
-        await user.save();
-      }
+    // 历法选农历时，result.solarDate 是折算后的公历。落库统一存公历，
+    // 顺便留下原始的农历输入，避免以后读记录时把农历当公历重算
+    const input = data.calendar === 'lunar'
+      ? { ...data, solarDate: result.solarDate, lunarDate: data.solarDate }
+      : data;
 
+    if (user) {
       // 保存算命记录
       const fortune = await Fortune.create({
         userId,
         type: 'bazi',
         bazi: {
-          input: data,
+          input,
           result: result.bazi,
         },
         aiInterpretation: result.interpretation,
@@ -52,6 +48,9 @@ class FortuneService {
 
       return {
         fortuneId: fortune._id,
+        // 农历录入时这里是折算后的公历，客户端据此显示"对应公历"，
+        // 也让调用方确认服务端到底按哪一天排的盘
+        solarDate: result.solarDate,
         bazi: result.bazi,
         interpretation: result.interpretation,
       };
@@ -59,6 +58,7 @@ class FortuneService {
 
     // 游客模式直接返回计算结果
     return {
+      solarDate: result.solarDate,
       bazi: result.bazi,
       interpretation: result.interpretation,
     };
@@ -71,17 +71,7 @@ class FortuneService {
       throw new Error('用户不存在');
     }
 
-    if (user.fortuneQuota <= 0 && user.memberLevel === 0) {
-      throw new Error('您的算命额度已用完，可通过每日签到、升级会员或充值获取更多次数！');
-    }
-
     const result = doubleBaziAnalysis(data);
-
-    // 扣除次数
-    if (user.memberLevel === 0) {
-      user.fortuneQuota -= 1;
-      await user.save();
-    }
 
     // 保存记录
     const fortune = await Fortune.create({
@@ -112,7 +102,7 @@ class FortuneService {
 
   // 获取每日运势
   async getDailyFortune(userId, date) {
-    const targetDate = date || new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const targetDate = date || getBeijingDateString();
     const redis = getRedis();
 
     // 拼装缓存 Key
@@ -222,17 +212,7 @@ class FortuneService {
       throw new Error('用户不存在');
     }
 
-    if (user.fortuneQuota <= 0 && user.memberLevel === 0) {
-      throw new Error('您的算命额度已用完，可通过每日签到、升级会员或充值获取更多次数！');
-    }
-
     const result = nameMatchAlgorithm(data);
-
-    // 扣除次数
-    if (user.memberLevel === 0) {
-      user.fortuneQuota -= 1;
-      await user.save();
-    }
 
     // 保存记录
     const fortune = await Fortune.create({
@@ -279,16 +259,6 @@ class FortuneService {
     const user = await User.findById(userId);
     if (!user) {
       throw new Error('用户不存在');
-    }
-
-    if (user.fortuneQuota <= 0 && user.memberLevel === 0) {
-      throw new Error('您的算命额度已用完，可通过每日签到、升级会员或充值获取更多次数！');
-    }
-
-    // 扣除次数
-    if (user.memberLevel === 0) {
-      user.fortuneQuota -= 1;
-      await user.save();
     }
 
     const { type, skinRatio, edgeAverage } = data;
@@ -478,7 +448,7 @@ class FortuneService {
 
   // 星座运势
   async getConstellationFortune(userId, constellation, date) {
-    const targetDate = date || new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const targetDate = date || getBeijingDateString();
     const redis = getRedis();
     const cacheKey = `constellation_fortune:${constellation}:${targetDate}`;
 

@@ -80,6 +80,34 @@ class MultiAgentService {
   }
 
   /**
+   * 圆桌会谈用的八字上下文文本。
+   * 排盘失败（时辰认不出、农历日期不存在等）不阻断会谈，退化成「未提供生辰八字」。
+   */
+  async buildBaziString(birthInfo, gender) {
+    if (!birthInfo || !birthInfo.solarDate || !birthInfo.birthTime) {
+      return '未提供生辰八字';
+    }
+
+    try {
+      const { baziAnalysis: baziAlgorithm } = require('../algorithms/bazi');
+      // baziAnalysis 是 async：漏掉 await 会拿到 Promise，读 .bazi 抛 TypeError 后被
+      // 下面的 catch 静默吃掉，会谈就永远看不到用户八字（曾经就是这个 bug）
+      const { bazi } = await baziAlgorithm({
+        solarDate: birthInfo.solarDate,
+        birthTime: birthInfo.birthTime,
+        gender: gender === 'female' ? 'female' : 'male',
+        calendar: birthInfo.calendar,
+      });
+      const w = bazi.wuxing;
+      return `八字: ${bazi.yearGanZhi} ${bazi.monthGanZhi} ${bazi.dayGanZhi} ${bazi.hourGanZhi}, `
+        + `五行平衡: 金${w.metal} 木${w.wood} 水${w.water} 火${w.fire} 土${w.earth}`;
+    } catch (err) {
+      console.error('Bazi analysis failed inside Multi-Agent Council:', err.message);
+      return '未提供生辰八字';
+    }
+  }
+
+  /**
    * 启动多智能体圆桌会谈流
    */
   councilStream({ messages, birthInfo, gender, userId }) {
@@ -93,22 +121,6 @@ class MultiAgentService {
       metadata: { birthInfo, gender }
     }) : null;
 
-    // 计算八字基础信息
-    let baziString = '未提供生辰八字';
-    if (birthInfo && birthInfo.solarDate && birthInfo.birthTime) {
-      try {
-        const { baziAnalysis: baziAlgorithm } = require('../algorithms/bazi');
-        const baziRes = baziAlgorithm({
-          solarDate: birthInfo.solarDate,
-          birthTime: birthInfo.birthTime,
-          gender: gender === 'female' ? 'female' : 'male',
-        });
-        baziString = `八字: ${baziRes.bazi.yearGanZhi} ${baziRes.bazi.monthGanZhi} ${baziRes.bazi.dayGanZhi} ${baziRes.bazi.hourGanZhi}, 五行平衡: 金${baziRes.bazi.wuxing.metal} 木${baziRes.bazi.wuxing.wood} 水${baziRes.bazi.wuxing.water} 火${baziRes.bazi.wuxing.fire} 土${baziRes.bazi.wuxing.earth}`;
-      } catch (err) {
-        console.error('Bazi analysis failed inside Multi-Agent Council:', err.message);
-      }
-    }
-
     const self = this;
     const stream = new Readable({
       read() {} // 动态推入数据，无需在 read 方法中阻塞
@@ -117,6 +129,10 @@ class MultiAgentService {
     // 启动异步会谈流水线
     (async () => {
       try {
+        // 计算八字基础信息。本方法要同步把 stream 交给调用方，
+        // 所以排盘只能放进这条 async 流水线里 await
+        const baziString = await self.buildBaziString(birthInfo, gender);
+
         // --- 智能体 1: 妙空大师 (东方命理) ---
         const systemPrompt1 = `你是一位修行多年的东方玄学命理大师——妙空大师。你说话充满禅意，常称呼用户为“施主”，句首喜欢念“阿弥陀佛”。
 你精通生辰八字、易经八卦。请针对用户的提问，结合其八字五行给出深刻而充满慈悲的命理解读。
@@ -226,20 +242,7 @@ class MultiAgentService {
       metadata: { birthInfo, gender }
     }) : null;
 
-    let baziString = '未提供生辰八字';
-    if (birthInfo && birthInfo.solarDate && birthInfo.birthTime) {
-      try {
-        const { baziAnalysis: baziAlgorithm } = require('../algorithms/bazi');
-        const baziRes = baziAlgorithm({
-          solarDate: birthInfo.solarDate,
-          birthTime: birthInfo.birthTime,
-          gender: gender === 'female' ? 'female' : 'male',
-        });
-        baziString = `八字: ${baziRes.bazi.yearGanZhi} ${baziRes.bazi.monthGanZhi} ${baziRes.bazi.dayGanZhi} ${baziRes.bazi.hourGanZhi}, 五行平衡: 金${baziRes.bazi.wuxing.metal} 木${baziRes.bazi.wuxing.wood} 水${baziRes.bazi.wuxing.water} 火${baziRes.bazi.wuxing.fire} 土${baziRes.bazi.wuxing.earth}`;
-      } catch (err) {
-        console.error('Bazi analysis failed inside Multi-Agent Council:', err.message);
-      }
-    }
+    const baziString = await this.buildBaziString(birthInfo, gender);
 
     const opinions = [];
 

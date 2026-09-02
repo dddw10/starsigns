@@ -22,10 +22,12 @@ const fortuneSchema = new mongoose.Schema(
     bazi: {
       // 输入参数
       input: {
+        // solarDate 恒为公历；用户按农历录入时，原始农历日期存在 lunarDate
         solarDate: String,
         lunarDate: String,
         birthTime: String,
         gender: String,
+        calendar: String,
       },
       // 八字结果
       result: {
@@ -33,6 +35,10 @@ const fortuneSchema = new mongoose.Schema(
         monthGanZhi: String,
         dayGanZhi: String,
         hourGanZhi: String,
+        // 生肖 / 农历，跟随年柱地支与排盘结果，供历史记录回显
+        shengXiao: String,
+        lunarDate: String,
+        lunarDateText: String,
         wuxing: {
           metal: Number,
           wood: Number,
@@ -158,7 +164,6 @@ const fortuneSchema = new mongoose.Schema(
 // 索引
 fortuneSchema.index({ userId: 1, type: 1 });
 fortuneSchema.index({ createdAt: -1 });
-fortuneSchema.index({ orderId: 1 });
 
 const Fortune = mongoose.model('Fortune', fortuneSchema);
 

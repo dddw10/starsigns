@@ -4,6 +4,7 @@ const PushLog = require('../models/PushLog');
 const User = require('../models/User');
 const wechatConfig = require('../config/wechat');
 const { getRedis } = require('../config/redis');
+const { getBeijingDateString } = require('../utils/date');
 
 class PushService {
   async getSettings(userId) {
@@ -31,6 +32,12 @@ class PushService {
 
   // 订阅推送消息
   async subscribe(userId, templateId) {
+    if (!this._isPushConfigured()) {
+      throw new Error('微信订阅消息尚未完成服务端配置');
+    }
+    if (templateId !== wechatConfig.templates.dailyFortune) {
+      throw new Error('订阅模板无效');
+    }
     const user = await User.findById(userId);
     if (!user) {
       throw new Error('用户不存在');
@@ -44,7 +51,7 @@ class PushService {
 
     if (subscription) {
       subscription.status = 'active';
-      subscription.expireAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      subscription.expireAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await subscription.save();
     } else {
       subscription = await PushSubscription.create({
@@ -151,9 +158,11 @@ class PushService {
     const cacheKey = 'wechat:access_token';
 
     // 尝试从缓存获取
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      return cached;
+    if (redis) {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
     }
 
     // 调用微信接口获取
@@ -166,7 +175,9 @@ class PushService {
 
     const { access_token, expires_in } = result.data;
     // 缓存，提前 5 分钟过期
-    await redis.set(cacheKey, access_token, 'EX', expires_in - 300);
+    if (redis) {
+      await redis.set(cacheKey, access_token, 'EX', expires_in - 300);
+    }
 
     return access_token;
   }
@@ -200,13 +211,16 @@ class PushService {
           return str.length > len ? str.slice(0, len - 3) + '...' : str;
         };
 
-        const todayStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const todayStr = getBeijingDateString();
+
+        const fortuneKeywords = truncate(`宜:${fortune.yi.slice(0,2).join(' ')} 忌:${fortune.ji.slice(0,2).join(' ')}`, 20);
+        const fortuneSummary = truncate(`${fortune.score}分 - ${fortune.overall}`, 20);
 
         // 构建推送数据
         const pushData = {
           // 命名属性
           date: todayStr,
-          overall: truncate(`${fortune.score}分 - ${fortune.overall}`, 20),
+          overall: fortuneSummary,
           career: truncate(fortune.career, 20),
           wealth: truncate(fortune.wealth, 20),
           love: truncate(fortune.love, 20),
@@ -217,16 +231,33 @@ class PushService {
           // 微信标准订阅消息编号字段映射（以防开发者使用不同的模板参数配置）
           date1: todayStr,
           date2: todayStr,
-          thing1: truncate(`${fortune.score}分 - ${fortune.overall}`, 20), // 运势简评
-          thing2: truncate(fortune.yi.join('、'), 20), // 今日所宜
-          thing3: truncate(fortune.ji.join('、'), 20), // 今日所忌
-          thing4: truncate(fortune.overall, 20), // 温馨提示
-          thing5: truncate(`色:${fortune.luckyColorName || fortune.luckyColor} 数:${fortune.luckyNumber}`, 20), // 幸运提示
+          date3: todayStr,
+          date4: todayStr,
+          date5: todayStr,
+
+          thing1: fortuneKeywords,
+          thing2: fortuneSummary,
+          thing3: truncate(fortune.yi.join('、'), 20),
+          thing4: truncate(fortune.ji.join('、'), 20),
+          thing5: truncate(fortune.overall, 20),
           
-          character_string1: truncate(fortune.luckyNumber.toString(), 32),
-          character_string2: truncate(fortune.luckyColorName || fortune.luckyColor, 32),
+          character_string1: fortuneKeywords,
+          character_string2: fortuneSummary,
+          character_string3: truncate(fortune.luckyNumber.toString(), 32),
+          character_string4: truncate(fortune.luckyColorName || fortune.luckyColor, 32),
+          character_string5: truncate(fortune.overall, 32),
+
+          phrase1: truncate(fortune.yi.slice(0, 2).join('、'), 15),
+          phrase2: truncate(fortune.ji.slice(0, 2).join('、'), 15),
+          phrase3: truncate(fortune.luckyColorName || '红色', 15),
+          phrase4: '今日运势',
+          phrase5: '温馨提示',
+
           number1: fortune.luckyNumber,
           number2: fortune.score,
+          number3: fortune.score,
+          number4: fortune.luckyNumber,
+          number5: fortune.score,
         };
 
         // 发送推送
@@ -249,9 +280,10 @@ class PushService {
           pushedAt: new Date(),
         });
 
-        // 更新订阅记录
+        // 微信一次订阅授权只能发送一条消息，发送后必须重新授权。
         sub.lastPushAt = new Date();
         sub.pushCount += 1;
+        sub.status = 'inactive';
         await sub.save();
 
         if (result.success) {
@@ -284,9 +316,17 @@ class PushService {
 
     return {
       pushEnabled: Boolean(settings.pushEnabled ?? subscribeAccepted),
-      pushTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(settings.pushTime || '') ? settings.pushTime : '08:00',
+      pushTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(settings.pushTime || '') ? settings.pushTime : '00:00',
       pushTypes,
     };
+  }
+
+  _isPushConfigured() {
+    return Boolean(
+      wechatConfig.appId && wechatConfig.appId !== 'your_app_id'
+      && wechatConfig.appSecret && wechatConfig.appSecret !== 'your_app_secret'
+      && wechatConfig.templates.dailyFortune
+    );
   }
 }
 

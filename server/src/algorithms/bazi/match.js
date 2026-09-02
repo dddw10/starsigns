@@ -1,5 +1,4 @@
 // 双人八字配对（合婚）算法
-const { convertSolarToLunar } = require('./lunar');
 const { calculateBazi } = require('./index');
 const { 
   calculateWuxing, 
@@ -175,11 +174,8 @@ function doubleBaziAnalysis(data) {
   } = data;
 
   // 1. 分别获取双方八字与五行
-  const lunar1 = convertSolarToLunar(solarDate1);
-  const lunar2 = convertSolarToLunar(solarDate2);
-
-  const bazi1 = calculateBazi(lunar1, birthTime1);
-  const bazi2 = calculateBazi(lunar2, birthTime2);
+  const bazi1 = calculateBazi(solarDate1, birthTime1);
+  const bazi2 = calculateBazi(solarDate2, birthTime2);
 
   const wuxing1 = calculateWuxing(bazi1);
   const wuxing2 = calculateWuxing(bazi2);

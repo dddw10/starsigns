@@ -127,6 +127,8 @@ WECHAT_APP_ID=你的小程序 appid
 WECHAT_APP_SECRET=你的小程序 secret
 ```
 
+`WECHAT_APP_ID` 和 `WECHAT_APP_SECRET` **必须同时配齐**。缺一项或留占位值时，生产环境的 `POST /api/user/login` 会直接返回 503（启动日志里也会点名），**不会**降级成 mock 登录 —— mock 的 openid 由一次性 `code` 派生，每次冷启动都是一个新用户，线上表现就是用户的生辰、历史记录、神兽全部对不上。
+
 3. 准备证书目录
 
 ```bash

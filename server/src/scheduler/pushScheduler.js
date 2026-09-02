@@ -3,8 +3,12 @@ const pushService = require('../services/pushService');
 
 // 初始化定时任务
 function initScheduler() {
-  // 每天早上 8 点推送每日运势
-  schedule.scheduleJob('0 8 * * *', async () => {
+  if (process.env.ENABLE_SCHEDULER !== 'true') {
+    console.log('定时任务未启用');
+    return;
+  }
+  // 每天中午发送已授权但尚未发送的单次订阅消息。
+  schedule.scheduleJob('0 12 * * *', async () => {
     console.log(`[${new Date().toISOString()}] 开始推送每日运势...`);
     try {
       const result = await pushService.triggerDailyPush();
@@ -22,17 +26,6 @@ function initScheduler() {
       console.log('订阅过期检查完成');
     } catch (error) {
       console.error('订阅过期检查失败:', error);
-    }
-  });
-
-  // 每天凌晨 2 点清理过期订单
-  schedule.scheduleJob('0 2 * * *', async () => {
-    console.log(`[${new Date().toISOString()}] 清理过期订单...`);
-    try {
-      await cleanExpiredOrders();
-      console.log('过期订单清理完成');
-    } catch (error) {
-      console.error('过期订单清理失败:', error);
     }
   });
 
@@ -54,23 +47,6 @@ async function checkExpiredSubscriptions() {
   );
 
   console.log(`已将 ${result.modifiedCount} 个订阅标记为过期`);
-}
-
-// 清理过期订单
-async function cleanExpiredOrders() {
-  const Order = require('../models/Order');
-
-  const result = await Order.updateMany(
-    {
-      status: 'pending',
-      expireAt: { $lt: new Date() },
-    },
-    {
-      $set: { status: 'expired' },
-    }
-  );
-
-  console.log(`已将 ${result.modifiedCount} 个订单标记为过期`);
 }
 
 // 手动触发每日运势推送

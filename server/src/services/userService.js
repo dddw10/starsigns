@@ -1,10 +1,12 @@
 const axios = require('axios');
-const { Solar } = require('lunar-javascript');
 const User = require('../models/User');
 const Feedback = require('../models/Feedback');
 const wechatConfig = require('../config/wechat');
 const { generateToken } = require('../middleware/auth');
+const { isAdminUser } = require('../config/admin');
 const { getRedis } = require('../config/redis');
+const { getEightChar, resolveSolarDate } = require('../algorithms/bazi');
+const { getBeijingDateString } = require('../utils/date');
 
 const GAN_WUXING = {
   '\u7532': 'wood',
@@ -36,8 +38,29 @@ const ZHI_WUXING = {
 
 class UserService {
   async wxLogin(code) {
-    if (String(code).startsWith('h5-') || this._shouldUseMockLogin()) {
+    // H5 端拿不到微信 code，前端传的是一个存在浏览器里的持久 UUID（h5- 前缀）。
+    // 这是 H5 的正式身份来源，生产环境同样要放行
+    if (String(code).startsWith('h5-')) {
       return this._mockWxLogin(code);
+    }
+
+    if (this._shouldUseMockLogin()) {
+      if (!this._hasWechatCredentials()) {
+        console.warn('[login] 微信凭证缺失，本次走 mock 登录：openid 由一次性 code 派生，换个 code 就是换个用户，仅限本地开发');
+      }
+      return this._mockWxLogin(code);
+    }
+
+    if (!this._hasWechatCredentials()) {
+      // 这里宁可报错也不能降级：降级会悄悄给用户换一个身份，比登录失败难查得多
+      console.error(
+        '[login] 拒绝登录：WECHAT_APP_ID / WECHAT_APP_SECRET 未配置或仍是占位值。' +
+        '生产环境不允许降级到 mock 登录（每次冷启动都会新建一个用户，用户会发现自己的数据没了）。' +
+        '请补全环境变量后重启服务；确实要在生产用 mock 请显式设置 ALLOW_MOCK_LOGIN=true。'
+      );
+      const err = new Error('服务端未配置微信登录凭证');
+      err.status = 503;
+      throw err;
     }
 
     const url = wechatConfig.getJsCodeSessionUrl(
@@ -59,11 +82,17 @@ class UserService {
   }
 
   async getProfile(userId) {
+    const Fortune = require('../models/Fortune');
     const user = await User.findById(userId);
     if (!user) {
       throw new Error('User not found');
     }
-    return this._formatUserInfo(user);
+    // 总测算次数以 fortunes 集合实际条数为准（{userId, type} 索引可覆盖该查询）
+    const totalUsage = await Fortune.countDocuments({ userId });
+    return {
+      ...this._formatUserInfo(user),
+      totalUsage,
+    };
   }
 
   async updateProfile(userId, data) {
@@ -80,19 +109,23 @@ class UserService {
   }
 
   async updateBirthInfo(userId, data) {
+    // 历法选农历时，先把用户填的农历日期折算成公历。
+    // birthInfo.solarDate 存的必须是真公历，否则每日运势会按农历日期重算出错的八字
+    const solarDate = resolveSolarDate(data.solarDate, data.calendar);
+
     const birthInfo = {
-      solarDate: data.solarDate,
+      solarDate,
       lunarDate: data.lunarDate || '',
       birthTime: data.birthTime,
     };
 
-    if (data.solarDate) {
-      const [year, month, day] = data.solarDate.split('-').map(Number);
-      const lunar = Solar.fromYmd(year, month, day).getLunar();
+    if (solarDate) {
+      // 时辰要一起传进去，否则时柱恒等于子时那一柱
+      const eightChar = getEightChar(solarDate, data.birthTime);
+      const lunar = eightChar.getLunar();
 
       birthInfo.lunarDate = `${lunar.getYear()}-${lunar.getMonth()}-${lunar.getDay()}`;
 
-      const eightChar = lunar.getEightChar();
       birthInfo.yearGanZhi = eightChar.getYear();
       birthInfo.monthGanZhi = eightChar.getMonth();
       birthInfo.dayGanZhi = eightChar.getDay();
@@ -114,7 +147,7 @@ class UserService {
     try {
       const redis = getRedis();
       if (redis) {
-        const targetDate = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const targetDate = getBeijingDateString();
         await redis.del(`daily_fortune:user:${userId}:${targetDate}`);
       }
     } catch (err) {
@@ -126,33 +159,15 @@ class UserService {
 
   async getStats(userId) {
     const Fortune = require('../models/Fortune');
-    const Order = require('../models/Order');
     const user = await User.findById(userId);
     if (!user) {
       throw new Error('User not found');
     }
 
     const fortuneCount = await Fortune.countDocuments({ userId });
-    const orderCount = await Order.countDocuments({ userId, status: 'paid' });
 
     return {
       fortuneCount,
-      orderCount,
-      fortuneQuota: user.fortuneQuota,
-      memberLevel: user.memberLevel,
-    };
-  }
-
-  async getMemberStatus(userId) {
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    return {
-      memberLevel: user.memberLevel,
-      memberExpireAt: user.memberExpireAt,
-      isMember: user.isMember,
     };
   }
 
@@ -162,20 +177,14 @@ class UserService {
       throw new Error('用户不存在');
     }
 
-    const getLocalDateString = (date) => {
-      if (!date) return '';
-      const localTime = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-      return localTime.toISOString().slice(0, 10);
-    };
-
-    const todayStr = getLocalDateString(new Date());
-    const lastCheckInStr = getLocalDateString(user.lastCheckInAt);
+    // 签到跨天一律按北京时间判定，跟服务器时区无关
+    const todayStr = getBeijingDateString();
+    const lastCheckInStr = user.lastCheckInAt ? getBeijingDateString(user.lastCheckInAt) : '';
 
     if (todayStr === lastCheckInStr) {
       throw new Error('您今天已经签到过了哦，明天再来吧！');
     }
 
-    user.fortuneQuota += 1;
     user.lastCheckInAt = new Date();
     await user.save();
 
@@ -206,20 +215,26 @@ class UserService {
     }
 
     return {
-      fortuneQuota: user.fortuneQuota,
       lastCheckInAt: user.lastCheckInAt,
       petRewardMessage,
     };
   }
 
+  // 微信凭证是否齐全。AppID 和 AppSecret 少一个 jscode2session 都换不出 openid
+  _hasWechatCredentials() {
+    return wechatConfig.hasCredentials();
+  }
+
+  // mock 登录的身份是拿一次性的 login code 拼出来的（openid = dev_openid_<code>），
+  // 小程序每次冷启动 code 都不一样，也就等于换了一个新用户：生辰、历史记录、神兽全都对不上。
+  // 线上真出过这事——WECHAT_APP_SECRET 还是占位值，于是每次进小程序都新建一个账号。
+  // 所以凭证齐全就一律走真实登录；凭证缺失时只有非生产环境（或显式 ALLOW_MOCK_LOGIN=true）才允许降级，
+  // 生产环境宁可让登录报错，也不能悄悄发一个换了人的身份出去。
   _shouldUseMockLogin() {
-    return (
-      process.env.NODE_ENV === 'development' ||
-      !wechatConfig.appId ||
-      !wechatConfig.appSecret ||
-      wechatConfig.appId === 'your_app_id' ||
-      wechatConfig.appSecret === 'your_app_secret'
-    );
+    if (this._hasWechatCredentials()) {
+      return process.env.ALLOW_MOCK_LOGIN === 'true';
+    }
+    return process.env.ALLOW_MOCK_LOGIN === 'true' || process.env.NODE_ENV !== 'production';
   }
 
   async _mockWxLogin(code = 'dev-code') {
@@ -280,11 +295,8 @@ class UserService {
       nickname: user.nickname,
       avatar: user.avatar,
       gender: user.gender,
-      memberLevel: user.memberLevel,
-      vipLevel: user.memberLevel,
-      memberExpireAt: user.memberExpireAt,
-      fortuneQuota: user.fortuneQuota,
-      freeUsage: user.fortuneQuota,
+      phone: user.phone || '',
+      isAdmin: isAdminUser(user),
       totalUsage: 0,
       birthInfo: user.birthInfo,
       createdAt: user.createdAt,
@@ -334,6 +346,103 @@ class UserService {
       if (ZHI_WUXING[zhi]) wuxing[ZHI_WUXING[zhi]] += 1;
     });
     return wuxing;
+  }
+
+  async bindPhone(userId, code) {
+    // 手机号是管理员凭据，mock 绑定只允许在 mock 登录环境（本地/未配 AppID）下发生。
+    // 注意：这里不能再认裸的 code === 'mock-phone-code'，否则线上任何登录用户
+    // 都能把自己的 phone 写成白名单里的号码从而提权。
+    if (this._shouldUseMockLogin() || String(code).startsWith('h5-')) {
+      return this._mockBindPhone(userId);
+    }
+
+    try {
+      const pushService = require('./pushService');
+      const accessToken = await pushService._getAccessToken();
+
+      const url = `https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${accessToken}`;
+      const res = await axios.post(url, { code });
+
+      if (res.data.errcode !== 0) {
+        throw new Error(`WeChat phone binding failed: ${res.data.errmsg} (code: ${res.data.errcode})`);
+      }
+
+      const phoneNumber = res.data.phone_info.phoneNumber;
+      const user = await User.findByIdAndUpdate(userId, { $set: { phone: phoneNumber } }, { new: true });
+      if (!user) {
+        throw new Error('User not found');
+      }
+      return this._formatUserInfo(user);
+    } catch (error) {
+      console.error('WeChat bind phone error:', error.message);
+      if (this._shouldUseMockLogin()) {
+        return this._mockBindPhone(userId);
+      }
+      throw error;
+    }
+  }
+
+  async _mockBindPhone(userId) {
+    const mockPhone = (process.env.MOCK_BIND_PHONE || '13580006666').trim();
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: { phone: mockPhone } },
+      { new: true }
+    );
+    if (!user) {
+      throw new Error('User not found');
+    }
+    return this._formatUserInfo(user);
+  }
+
+  async register(username, password) {
+    if (!username || !username.trim()) {
+      throw new Error('用户名不能为空');
+    }
+    if (!password || password.length < 6) {
+      throw new Error('密码长度不能少于 6 位');
+    }
+
+    const existingUser = await User.findOne({ username: username.trim() });
+    if (existingUser) {
+      throw new Error('该账号已被注册');
+    }
+
+    const crypto = require('crypto');
+    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
+
+    const openid = `h5_openid_${username.trim()}_${Math.random().toString(36).substring(2, 8)}`;
+    const user = await User.create({
+      username: username.trim(),
+      password: hashedPassword,
+      nickname: username.trim(),
+      openid: openid
+    });
+
+    return this._buildLoginResult(user, openid);
+  }
+
+  async loginAccount(username, password) {
+    if (!username || !username.trim()) {
+      throw new Error('用户名不能为空');
+    }
+    if (!password) {
+      throw new Error('密码不能为空');
+    }
+
+    const user = await User.findOne({ username: username.trim() });
+    if (!user || !user.password) {
+      throw new Error('账号或密码错误');
+    }
+
+    const crypto = require('crypto');
+    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
+
+    if (user.password !== hashedPassword) {
+      throw new Error('账号或密码错误');
+    }
+
+    return this._buildLoginResult(user, user.openid || `h5_openid_${user.username}`);
   }
 }
 

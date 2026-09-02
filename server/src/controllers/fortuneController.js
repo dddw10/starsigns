@@ -5,8 +5,8 @@ const aiService = require('../services/aiService');
 exports.baziAnalysis = async (req, res, next) => {
   try {
     const userId = req.user.userId;
-    const { solarDate, birthTime, gender } = req.body;
-    const result = await fortuneService.baziAnalysis(userId, { solarDate, birthTime, gender });
+    const { solarDate, birthTime, gender, calendar } = req.body;
+    const result = await fortuneService.baziAnalysis(userId, { solarDate, birthTime, gender, calendar });
     res.json({
       code: 0,
       message: '分析完成',
@@ -199,25 +199,9 @@ exports.facePalmAnalysis = async (req, res, next) => {
     const userId = req.user.userId;
     const { type, skinRatio, edgeAverage, base64Image } = req.body;
     
-    const User = require('../models/User');
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('用户不存在');
-    }
-
-    if (user.fortuneQuota <= 0 && user.memberLevel === 0) {
-      throw new Error('您的算命额度已用完，可通过每日签到、升级会员或充值获取更多次数！');
-    }
-    
     // 调用 AI 智能分析 (支持多模态 VLM 或文本特征大模型兜底)
     const result = await aiService.analyzeFacePalm({ type, base64Image, skinRatio, edgeAverage });
     
-    // 扣除次数
-    if (user.memberLevel === 0) {
-      user.fortuneQuota -= 1;
-      await user.save();
-    }
-
     // 赠送神兽食物
     await fortuneService._rewardPetFood(userId, 'coarseGrass', 1);
 
