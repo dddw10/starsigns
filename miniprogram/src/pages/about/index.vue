@@ -6,7 +6,7 @@
     
     <view class="logo-section">
       <image class="logo" :src="logoSrc" mode="aspectFit"></image>
-      <text class="app-name">算命小程序</text>
+      <text class="app-name">今日星能量小程序</text>
       <text class="version">版本 1.0.0</text>
     </view>
     
@@ -37,7 +37,7 @@
     </view>
     
     <view class="copyright">
-      <text class="copyright-text">© 2024 算命小程序 版权所有</text>
+      <text class="copyright-text">© 2024 今日星能量小程序 版权所有</text>
       <text class="copyright-text">本小程序仅供娱乐参考</text>
       <!-- #ifdef H5 -->
       <view class="icp-container">

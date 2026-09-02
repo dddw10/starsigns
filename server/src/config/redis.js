@@ -6,6 +6,7 @@ const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
 const REDIS_DB = parseInt(process.env.REDIS_DB, 10) || 0;
 
 let redisClient = null;
+let hasConnectedOnce = false;
 
 async function connectRedis() {
   return new Promise((resolve, reject) => {
@@ -15,15 +16,20 @@ async function connectRedis() {
       password: REDIS_PASSWORD || undefined,
       db: REDIS_DB,
       retryStrategy(times) {
-        if (times > 3) return null;
-        const delay = Math.min(times * 50, 2000);
-        return delay;
+        // 首次连接：失败 3 次即放弃，让服务降级为内存模式正常启动
+        if (!hasConnectedOnce) {
+          if (times > 3) return null;
+          return Math.min(times * 50, 2000);
+        }
+        // 运行期断线（Redis 重启等）：持续重连，否则缓存会永久失效直到进程重启
+        return Math.min(times * 200, 5000);
       },
       maxRetriesPerRequest: 3,
       lazyConnect: true,
     });
 
     redisClient.on('connect', () => {
+      hasConnectedOnce = true;
       console.log('Redis 连接成功');
     });
 

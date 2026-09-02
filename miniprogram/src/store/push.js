@@ -1,20 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { updatePushSettingsApi } from '../api/push.js'
+import { updatePushSettingsApi, subscribePushApi, unsubscribePushApi } from '../api/push.js'
 
-const SUBSCRIBE_TEMPLATE_IDS = []
+const SUBSCRIBE_TEMPLATE_IDS = ['-zmwVIKDIP7V8wOPiphv75NMclRxlEwFPzIPvLNE5v4']
 
 export const usePushStore = defineStore('push', () => {
   // 是否开启推送
   const pushEnabled = ref(false)
   // 推送时间 (格式: HH:mm)
-  const pushTime = ref('08:00')
+  const pushTime = ref('00:00')
   // 推送类型
   const pushTypes = ref({
     dailyFortune: true,   // 每日运势
     constellation: false,  // 星座提醒
-    tarot: false,          // 塔罗提醒
-    bazi: false            // 八字提醒
+    tarot: false,          // 灵感卡牌提醒
+    bazi: false            // 生日密码提醒
   })
 
   // 从本地存储初始化
@@ -24,7 +24,7 @@ export const usePushStore = defineStore('push', () => {
       if (stored) {
         const data = JSON.parse(stored)
         pushEnabled.value = data.pushEnabled || false
-        pushTime.value = data.pushTime || '08:00'
+        pushTime.value = data.pushTime || '00:00'
         pushTypes.value = data.pushTypes || pushTypes.value
       }
     } catch (e) {
@@ -34,17 +34,21 @@ export const usePushStore = defineStore('push', () => {
 
   // 开关推送
   async function togglePush(enabled = !pushEnabled.value) {
-    pushEnabled.value = enabled
-
-    // 请求微信订阅消息权限
-    if (pushEnabled.value) {
+    if (enabled) {
       const subscribed = await requestSubscribeMessage()
-      if (!subscribed) {
-        pushEnabled.value = false
+      if (!subscribed) return false
+
+      await subscribePushApi({ templateId: SUBSCRIBE_TEMPLATE_IDS[0] })
+      pushEnabled.value = true
+    } else {
+      if (SUBSCRIBE_TEMPLATE_IDS.length) {
+        await unsubscribePushApi({ templateId: SUBSCRIBE_TEMPLATE_IDS[0] })
       }
+      pushEnabled.value = false
     }
 
     await saveSettings()
+    return true
   }
 
   // 设置推送时间
@@ -80,10 +84,10 @@ export const usePushStore = defineStore('push', () => {
 
   // 请求订阅消息权限
   function requestSubscribeMessage() {
-    // #ifndef MP-WECHAT
+    // #ifndef MP-WEIXIN
     return Promise.resolve(true)
     // #endif
-    // #ifdef MP-WECHAT
+    // #ifdef MP-WEIXIN
     if (!SUBSCRIBE_TEMPLATE_IDS.length) {
       uni.showToast({
         title: '微信订阅模板未配置，已保存本地设置',
@@ -96,8 +100,13 @@ export const usePushStore = defineStore('push', () => {
       uni.requestSubscribeMessage({
         tmplIds: SUBSCRIBE_TEMPLATE_IDS,
         success: (res) => {
-          console.log('订阅消息授权成功:', res)
-          resolve(true)
+          const status = res[SUBSCRIBE_TEMPLATE_IDS[0]]
+          if (status === 'accept') {
+            resolve(true)
+            return
+          }
+          uni.showToast({ title: '未授权订阅消息', icon: 'none' })
+          resolve(false)
         },
         fail: (err) => {
           console.error('订阅消息授权失败:', err)

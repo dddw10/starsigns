@@ -2,28 +2,16 @@
   <view class="page-container" :class="themeClass">
     <view class="header">
       <text class="title">推送设置</text>
-      <text class="subtitle">开启每日运势推送，不错过每一天的好运</text>
+      <text class="subtitle">授权后接收一条专属运势提醒</text>
     </view>
 
     <view class="setting-section">
       <view class="setting-item">
         <view class="setting-info">
-          <text class="setting-name">每日运势推送</text>
-          <text class="setting-desc">每天收到专属运势提醒</text>
+          <text class="setting-name">订阅下一条运势提醒</text>
+          <text class="setting-desc">微信每次授权仅可发送一条消息</text>
         </view>
         <switch :checked="pushEnabled" @change="togglePush" color="var(--primary-color, #c41e3a)" />
-      </view>
-    </view>
-
-    <view class="setting-section" v-if="pushEnabled">
-      <view class="setting-item">
-        <view class="setting-info">
-          <text class="setting-name">推送时间</text>
-          <text class="setting-desc">选择您希望收到推送的时间</text>
-        </view>
-        <picker mode="time" :value="pushTime" @change="onTimeChange">
-          <text class="setting-value">{{ pushTime }}</text>
-        </picker>
       </view>
     </view>
 
@@ -60,20 +48,20 @@
           <text class="preview-text">幸运数字：8</text>
         </view>
 
-        <!-- 八字日运模板 -->
+        <!-- 生日密码日运模板 -->
         <view class="preview-body" v-else-if="type.id === 'bazi'">
           <text class="preview-text">日主气场：甲木 (喜水木)</text>
-          <text class="preview-text">今日吉凶：水木相生，宜进取、求财</text>
-          <text class="preview-text">五行开运：宜穿戴青绿色衣饰强化木气</text>
+          <text class="preview-text">今日能量：水木相生，宜进取、求财</text>
+          <text class="preview-text">五行增能：宜穿戴青绿色衣饰强化木气</text>
           <text class="preview-text">吉时良辰：午时 (11:00-13:00) 诸事亨通</text>
-          <text class="preview-text">命理批注：今日官星当令，宜沉稳务实</text>
+          <text class="preview-text">性格批注：今日官星当令，宜沉稳务实</text>
         </view>
 
         <!-- 星座日运模板 -->
         <view class="preview-body" v-else-if="type.id === 'constellation'">
           <text class="preview-text">主星相位：双子座 (Gemini)</text>
           <text class="preview-text">今日表现：★★★★☆ (贵人提携，灵感爆棚)</text>
-          <text class="preview-text">开运建议：宜多倾听，保持逻辑理性</text>
+          <text class="preview-text">增能建议：宜多倾听，保持逻辑理性</text>
           <text class="preview-text">幸运物品：天然水晶 / 浅蓝色服饰</text>
           <text class="preview-text">心境提醒：克制浮躁，细水方能长流</text>
         </view>
@@ -82,9 +70,9 @@
 
     <view class="info-section">
       <text class="info-title">推送说明</text>
-      <text class="info-text">1. 需要授权微信订阅消息权限</text>
-      <text class="info-text">2. 每次授权可接收一条推送</text>
-      <text class="info-text">3. 可随时在设置中关闭推送</text>
+      <text class="info-text">1. 需要在微信弹窗中明确同意订阅</text>
+      <text class="info-text">2. 每次同意只会收到一条消息，发送后需再次授权</text>
+      <text class="info-text">3. 可随时在此处取消尚未发送的提醒</text>
       <text class="info-text">4. 推送内容仅供娱乐参考</text>
     </view>
 
@@ -110,23 +98,18 @@ const todayDate = computed(() => {
 
 const pushTypes = ref([
   { id: 'general', name: '综合运势', desc: '今日宜忌、运势评分', icon: '🌟', enabled: true },
-  { id: 'bazi', name: '八字日运', desc: '基于生辰的五行分析', icon: '📿', enabled: false },
+  { id: 'bazi', name: '生日密码日运', desc: '基于生辰的五行分析', icon: '📿', enabled: false },
   { id: 'constellation', name: '星座日运', desc: '基于星座的运势', icon: '⭐', enabled: false }
 ])
 
 const togglePush = async (e) => {
   if (e.detail.value) {
-    await pushStore.togglePush(true)
-    uni.showToast({ title: pushStore.pushEnabled ? '已开启推送' : '未开启推送', icon: 'none' })
+    const subscribed = await pushStore.togglePush(true)
+    uni.showToast({ title: subscribed ? '已订阅下一条提醒' : '未完成订阅', icon: 'none' })
   } else {
     await pushStore.togglePush(false)
     uni.showToast({ title: '已关闭推送', icon: 'none' })
   }
-}
-
-const onTimeChange = (e) => {
-  pushStore.setPushTime(e.detail.value)
-  uni.showToast({ title: `推送时间设为${e.detail.value}`, icon: 'none' })
 }
 
 const toggleType = (typeId, e) => {
@@ -148,7 +131,7 @@ const toggleType = (typeId, e) => {
 const enabledTypes = computed(() => {
   return pushTypes.value.filter(t => t.enabled).map(t => {
     let previewTitle = '【今日运势】'
-    if (t.id === 'bazi') previewTitle = '【八字日运】'
+    if (t.id === 'bazi') previewTitle = '【生日密码日运】'
     if (t.id === 'constellation') previewTitle = '【星座日运】'
     return {
       ...t,

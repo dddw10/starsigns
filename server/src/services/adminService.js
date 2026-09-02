@@ -1,5 +1,4 @@
 const Feedback = require('../models/Feedback');
-const User = require('../models/User');
 
 class AdminService {
   /**
@@ -12,7 +11,7 @@ class AdminService {
 
     const total = await Feedback.countDocuments(query);
     const list = await Feedback.find(query)
-      .populate('userId', 'nickname avatar memberLevel')
+      .populate('userId', 'nickname avatar')
       .sort({ createdAt: -1 })
       .skip((page - 1) * pageSize)
       .limit(Number(pageSize));
@@ -42,29 +41,17 @@ class AdminService {
     feedback.status = 'processed';
     feedback.replyAt = new Date();
 
-    // 采纳奖励逻辑：如果关联了用户，且尚未发放奖励
-    let rewardGranted = false;
-    if (feedback.userId && !feedback.rewardGranted) {
-      const user = await User.findById(feedback.userId);
-      if (user) {
-        user.fortuneQuota += 3; // 奖励 3 次测算额度
-        await user.save();
-        feedback.rewardGranted = true;
-        rewardGranted = true;
-      }
-    }
-
     await feedback.save();
 
     // 重新拉取以带上用户关联数据
     const populatedFeedback = await Feedback.findById(feedbackId).populate(
       'userId',
-      'nickname avatar memberLevel fortuneQuota'
+      'nickname avatar'
     );
 
     return {
       feedback: populatedFeedback,
-      rewardGranted,
+      rewardGranted: false,
     };
   }
 }

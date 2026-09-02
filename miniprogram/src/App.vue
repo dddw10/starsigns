@@ -19,11 +19,21 @@ const pushStore = usePushStore()
 const themeClass = computed(() => themeStore.getThemeClass())
 
 // 小程序启动时执行
-onLaunch(() => {
+onLaunch(async () => {
   console.log('App Launch')
 
   // 初始化用户状态
   userStore.initFromStorage()
+
+  // #ifdef MP-WEIXIN
+  // 一律重新换令牌，不看本地有没有旧令牌。
+  // 小程序换令牌只需要 uni.login()，不需要用户操作；而本地令牌在 initFromStorage
+  // 里已经被丢掉了，如果再用「本地有令牌」当条件，一次失败就永久登不回来
+  await userStore.restoreWechatSession()
+  // #endif
+
+  // 拉取最新系统配置 (审核开关)
+  userStore.fetchSystemConfig()
 
   // 初始化推送状态
   pushStore.initFromStorage()

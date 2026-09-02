@@ -1,21 +1,21 @@
 import { get, post, del } from './request.js'
 
-// 八字排盘计算
+// 生日密码排盘计算
 export function calcBaziApi(data) {
   return post('/api/fortune/bazi', data)
 }
 
-// 双人八字配对
+// 双人生日密码配对
 export function baziMatchApi(data) {
   return post('/api/fortune/bazi-match', data)
 }
 
-// 获取八字详细解读
+// 获取生日密码详细解读
 export function getBaziDetailApi(id) {
   return get(`/api/fortune/bazi/${id}`)
 }
 
-// 获取星座运势
+// 获取星座灵感
 export function getConstellationFortuneApi(constellation, params) {
   return get(`/api/fortune/constellation/${constellation}`, params)
 }
@@ -40,7 +40,7 @@ export function getTarotListApi() {
   return get('/api/fortune/tarot-list')
 }
 
-// 生肖运势查询
+// 生肖灵感查询
 export function getZodiacFortuneApi(zodiac, params) {
   return get(`/api/fortune/zodiac/${zodiac}`, params)
 }
@@ -60,22 +60,22 @@ export function fengshuiAnalysisApi(data) {
   return post('/api/fortune/fengshui', data)
 }
 
-// 获取算命记录列表
+// 获取分析记录列表
 export function getFortuneRecordsApi(params) {
   return get('/api/fortune/records', params)
 }
 
-// 获取算命记录详情
+// 获取分析记录详情
 export function getFortuneRecordApi(id) {
   return get(`/api/fortune/record/${id}`)
 }
 
-// 删除算命记录
+// 删除分析记录
 export function deleteFortuneRecordApi(id) {
   return del(`/api/fortune/record/${id}`)
 }
 
-// 每日运势
+// 每日灵感
 export function getDailyFortuneApi(params) {
   return get('/api/fortune/daily', params)
 }
@@ -90,12 +90,12 @@ export function luckyDrawApi() {
   return post('/api/fortune/lucky-draw')
 }
 
-// 获取推荐算命项目
+// 获取推荐分析项目
 export function getRecommendApi() {
   return get('/api/fortune/recommend')
 }
 
-// 分享算命结果
+// 分享分析结果
 export function shareFortuneRecordApi(id) {
   return post(`/api/fortune/share/${id}`)
 }

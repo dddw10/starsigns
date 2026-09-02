@@ -7,7 +7,7 @@
     <view class="share-card-container">
       <view class="share-card">
         <view class="card-header">
-          <text class="app-name">☯️ 算命大师小程序 ☯️</text>
+          <text class="app-name">☯️ 今日星能量小程序 ☯️</text>
           <text class="share-date">{{ shareDate }}</text>
         </view>
 
@@ -24,7 +24,7 @@
           </view>
 
           <view class="user-info-section" v-if="result.name">
-            <text class="user-label">测算信士:</text>
+            <text class="user-label">分析对象:</text>
             <text class="user-val">{{ result.name }}</text>
           </view>
 
@@ -36,7 +36,7 @@
         </view>
 
         <view class="card-footer">
-          <text class="footer-text">扫码叩问天机，测测您的气运 ➔</text>
+          <text class="footer-text">扫码探索未知，解读您的星能 ➔</text>
           <view class="qrcode-wrapper">
             <view class="qrcode-placeholder">
               <text class="qrcode-logo">☯️</text>
@@ -49,18 +49,18 @@
     <!-- 操作区 -->
     <view class="action-section">
       <button class="action-btn save-btn" @click="savePoster">保存海报至相册</button>
-      <!-- #ifdef MP-WECHAT -->
+      <!-- #ifdef MP-WEIXIN -->
       <button class="action-btn primary-btn" open-type="share">直接发送给好友</button>
       <!-- #endif -->
-      <!-- #ifndef MP-WECHAT -->
+      <!-- #ifndef MP-WEIXIN -->
       <button class="action-btn primary-btn" @click="shareOnH5">分享网页链接</button>
       <!-- #endif -->
     </view>
 
     <view class="tips-section">
-      <text class="tips-title">💡 命运分享贴士</text>
-      <text class="tips-text">1. 保存海报后可发布至微信朋友圈，与亲友探讨运势</text>
-      <text class="tips-text">2. 分享合婚或契合度报告给对方，增进彼此数理联结</text>
+      <text class="tips-title">💡 灵感分享贴士</text>
+      <text class="tips-text">1. 保存海报后可发布至微信朋友圈，与亲友探讨能量特征</text>
+      <text class="tips-text">2. 分享配对或契合度报告给对方，增进彼此性格联结</text>
     </view>
 
     <!-- 用于海报绘制的离屏 canvas (双倍高保真清晰度) -->
@@ -84,10 +84,10 @@ const shareDate = computed(() => {
 
 const result = ref({
   type: 'bazi',
-  title: '生辰八字命盘',
-  name: '本命信士',
+  title: '生日密码档案',
+  name: '分析对象',
   score: 88,
-  analysis: '今日运势气场充沛，利于开展新事务；财星引照，宜广结善缘，平稳守信。'
+  analysis: '今日星能气场充沛，利于开展新事务；财富星引照，宜广结善缘，平稳守信。'
 })
 
 onLoad((options) => {
@@ -101,7 +101,7 @@ onLoad((options) => {
 // 微信原生转发好友
 onShareAppMessage(() => {
   return {
-    title: `【${result.value.title}】我的天命批语已送达，快来测测你的气运！`,
+    title: `【${result.value.title}】我的性格与灵感分析报告已送达，快来测测你的星能密码！`,
     path: `/pages/index/index`,
     imageUrl: '/static/share-cover.jpg' // 可选封面图
   }
@@ -162,7 +162,7 @@ const drawPosterOnCanvas = () => {
     ctx.setFillStyle('#e5c158')
     ctx.setFontSize(28)
     ctx.setTextAlign('center')
-    ctx.fillText('☯️ 算命大师小程序 ☯️', canvasW / 2, 80)
+    ctx.fillText('☯️ 今日星能量小程序 ☯️', canvasW / 2, 80)
 
     // 5. 绘制卷轴主图 (羊皮纸色背景区域)
     const scrollW = canvasW - 100
@@ -196,12 +196,12 @@ const drawPosterOnCanvas = () => {
     ctx.lineTo(canvasW / 2 + 120, scrollY + 105)
     ctx.stroke()
 
-    // 测算信士
+    // 分析对象
     if (result.value.name) {
       ctx.setTextAlign('left')
       ctx.setFontSize(26)
       ctx.setFillStyle('#6d4c41')
-      ctx.fillText(`测算信士: ${result.value.name}`, scrollX + 40, scrollY + 170)
+      ctx.fillText(`分析对象: ${result.value.name}`, scrollX + 40, scrollY + 170)
     }
 
     // 契合评分

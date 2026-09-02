@@ -1,4 +1,8 @@
 // 每日运势生成算法
+// 值日干支一律走 lunar-javascript 的万年历，不要再手写日差公式
+
+const { getDayGanZhi } = require('../bazi/lunar');
+const { getBeijingDateString } = require('../../utils/date');
 
 // 天干五行对应
 const GAN_WUXING = {
@@ -8,12 +12,6 @@ const GAN_WUXING = {
   '庚': 'metal', '辛': 'metal',
   '壬': 'water', '癸': 'water',
 };
-
-// 天干
-const TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
-
-// 地支
-const DI_ZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
 
 // 五行运势描述
 const FORTUNE_BY_ELEMENT = {
@@ -98,14 +96,45 @@ const YIJI_BY_ELEMENT = {
 
 // 根据日期生成每日运势
 function generateDailyFortune(birthInfo, date) {
-  const targetDate = date || new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const targetDate = date || getBeijingDateString();
   const [year, month, day] = targetDate.split('-').map(Number);
 
-  // 计算当日五行属性（简化算法）
-  const dayElement = calculateDayElement(year, month, day);
+  // 当日日柱（万年历），当日五行取日柱天干
+  const dayGanZhi = getDayGanZhi(year, month, day);
+  const dayGan = dayGanZhi.charAt(0);
+  const dayZhi = dayGanZhi.charAt(1);
+  const dayElement = GAN_WUXING[dayGan] || 'earth';
+
+  // 检测地支相冲
+  const CLASH_PAIRS = {
+    '子': '午', '午': '子',
+    '丑': '未', '未': '丑',
+    '寅': '申', '申': '寅',
+    '卯': '酉', '酉': '卯',
+    '辰': '戌', '戌': '辰',
+    '巳': '亥', '亥': '巳',
+  };
+
+  let isClashed = false;
+  let clashWarning = '';
+  if (birthInfo) {
+    const userDayZhi = birthInfo.dayGanZhi ? birthInfo.dayGanZhi.charAt(1) : null;
+    const userYearZhi = birthInfo.yearGanZhi ? birthInfo.yearGanZhi.charAt(1) : null;
+    
+    if (userDayZhi && CLASH_PAIRS[dayZhi] === userDayZhi) {
+      isClashed = true;
+      clashWarning = `今日值日地支【${dayZhi}】与您的日支【${userDayZhi}】相冲，感情或家宅磁场易有波动。`;
+    } else if (userYearZhi && CLASH_PAIRS[dayZhi] === userYearZhi) {
+      isClashed = true;
+      clashWarning = `今日值日地支【${dayZhi}】与您的生肖年支【${userYearZhi}】相冲，出行或外部社交需谨防冲撞。`;
+    }
+  }
 
   // 生成运势分数
-  const score = generateScore(birthInfo, dayElement, year, month, day);
+  let score = generateScore(birthInfo, dayElement, year, month, day);
+  if (isClashed) {
+    score = Math.max(30, score - 10); // 相冲日运势扣减 10 分
+  }
 
   // 确定运势等级与星级
   let level;
@@ -128,7 +157,10 @@ function generateDailyFortune(birthInfo, date) {
   }
 
   // 生成运势描述
-  const fortune = FORTUNE_BY_ELEMENT[dayElement][level];
+  let fortune = FORTUNE_BY_ELEMENT[dayElement][level];
+  if (clashWarning) {
+    fortune = `${fortune}（提示：${clashWarning}建议今日以静制动，稳重克己。）`;
+  }
 
   // 生成各维度运势
   const dimensions = generateDimensions(score, dayElement, year + month + day);
@@ -136,7 +168,7 @@ function generateDailyFortune(birthInfo, date) {
   // 生成幸运元素
   const luckyColorName = LUCKY_COLORS[dayElement][Math.floor(Math.random() * 3)];
   const LUCKY_COLOR_HEX = {
-    '白色': '#7f8c8d', // 使用深一点的灰色/白色，避免白色文字在白色背景上看不清
+    '白色': '#7f8c8d',
     '银色': '#95a5a6',
     '金色': '#d35400',
     '绿色': '#27ae60',
@@ -155,10 +187,66 @@ function generateDailyFortune(birthInfo, date) {
   const luckyColor = LUCKY_COLOR_HEX[luckyColorName] || '#c41e3a';
   const luckyNumber = LUCKY_NUMBERS[dayElement][Math.floor(Math.random() * 2)];
 
-  // 生成宜忌
-  const yiji = YIJI_BY_ELEMENT[dayElement] || YIJI_BY_ELEMENT.earth;
-  const yi = yiji.yi.slice(0, 3);
-  const ji = yiji.ji.slice(0, 3);
+  // 生成个性化宜忌
+  const RELATION_YIJI = {
+    resource: {
+      yi: ['签订合同', '规划未来', '学习深造', '拜师求学', '静心冥想'],
+      ji: ['过度懒散', '消极等待', '轻率决定', '逃避沟通']
+    },
+    companion: {
+      yi: ['聚餐会友', '团队建设', '求助他人', '结识新友', '商务公关'],
+      ji: ['独自决断', '意气之争', '高调炫耀', '借钱给他人']
+    },
+    wealth: {
+      yi: ['理财投资', '开张交易', '签署合同', '商务谈判', '求财祈福'],
+      ji: ['奢侈浪费', '投机倒把', '大额借贷', '轻信偏门']
+    },
+    officer: {
+      yi: ['求职面试', '向上汇报', '解决矛盾', '整理归纳', '自省改过'],
+      ji: ['顶撞上司', '违反规则', '冒险行事', '口舌争吵']
+    },
+    output: {
+      yi: ['灵感创作', '户外出游', '展现才艺', '浪漫约会', '唱歌聚餐'],
+      ji: ['口无遮拦', '熬夜伤神', '情绪失控', '多管闲事']
+    }
+  };
+
+  const WUXING_SHENG = {
+    'metal': 'water', 'water': 'wood', 'wood': 'fire',
+    'fire': 'earth', 'earth': 'metal',
+  };
+  const WUXING_KE = {
+    'metal': 'wood', 'wood': 'earth', 'earth': 'water',
+    'water': 'fire', 'fire': 'metal'
+  };
+
+  let relation = 'companion';
+  if (birthInfo && birthInfo.dayMaster) {
+    const dayMaster = birthInfo.dayMaster;
+    if (dayMaster === dayElement) {
+      relation = 'companion';
+    } else if (WUXING_SHENG[dayElement] === dayMaster) {
+      relation = 'resource';
+    } else if (WUXING_SHENG[dayMaster] === dayElement) {
+      relation = 'output';
+    } else if (WUXING_KE[dayMaster] === dayElement) {
+      relation = 'wealth';
+    } else if (WUXING_KE[dayElement] === dayMaster) {
+      relation = 'officer';
+    }
+  }
+
+  const baseYiJi = birthInfo ? RELATION_YIJI[relation] : YIJI_BY_ELEMENT[dayElement];
+  let yi = [...baseYiJi.yi];
+  let ji = [...baseYiJi.ji];
+
+  if (isClashed) {
+    yi = ['闭关静心', '整理杂物', '读书学习', ...yi].slice(0, 3);
+    ji = ['搬家迁徙', '重要谈判', '长途远行', ...ji].slice(0, 3);
+  } else {
+    yi = yi.slice(0, 3);
+    ji = ji.slice(0, 3);
+  }
 
   return {
     date: targetDate,
@@ -181,12 +269,7 @@ function generateDailyFortune(birthInfo, date) {
 
 // 计算当日五行属性（使用日柱天干）
 function calculateDayElement(year, month, day) {
-  // 使用日柱天干计算，更准确
-  const date = new Date(year, month - 1, day);
-  const baseDate = new Date(1900, 0, 1);
-  const days = Math.floor((date - baseDate) / (24 * 60 * 60 * 1000));
-  const ganIndex = (days + 9) % 10;
-  const dayGan = TIAN_GAN[ganIndex];
+  const dayGan = getDayGanZhi(year, month, day).charAt(0);
   return GAN_WUXING[dayGan] || 'earth';
 }
 

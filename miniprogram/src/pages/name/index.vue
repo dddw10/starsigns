@@ -5,14 +5,14 @@
 
     <!-- Tab 切换 -->
     <view class="tab-container" v-if="!result && !loading">
-      <view class="tab-item" :class="{ active: activeTab === 'single' }" @click="switchTab('single')">单人姓名测算</view>
-      <view class="tab-item" :class="{ active: activeTab === 'match' }" @click="switchTab('match')">双人姓名配对</view>
+      <view class="tab-item" :class="{ active: activeTab === 'single' }" @click="switchTab('single')">单人名字解析</view>
+      <view class="tab-item" :class="{ active: activeTab === 'match' }" @click="switchTab('match')">双人名字配对</view>
     </view>
 
     <!-- 输入表单 -->
     <view class="form-section" v-if="!result && !loading">
       <text class="section-title">
-        {{ activeTab === 'single' ? '✨ 姓名天命测算 ✨' : '☯️ 双人姓名契合度配对 ☯️' }}
+        {{ activeTab === 'single' ? '✨ 姓名性格分析 ✨' : '☯️ 双人名字契合度配对 ☯️' }}
       </text>
       
       <!-- 情况A：单人常用姓名 -->
@@ -40,15 +40,15 @@
       <!-- 模式1：单人表单 -->
       <view v-if="activeTab === 'single'">
         <view class="form-item">
-          <text class="label">测算姓名</text>
+          <text class="label">分析名字</text>
           <input class="input" v-model="name" placeholder="请输入真实姓名（2-4字）" placeholder-style="color:#6d658c;" maxlength="10" />
         </view>
 
         <view class="form-item">
           <text class="label">性别</text>
           <view class="gender-group">
-            <view class="gender-btn" :class="{ active: gender === 'male' }" @click="gender = 'male'">乾造 (男)</view>
-            <view class="gender-btn" :class="{ active: gender === 'female' }" @click="gender = 'female'">坤造 (女)</view>
+            <view class="gender-btn" :class="{ active: gender === 'male' }" @click="gender = 'male'">男</view>
+            <view class="gender-btn" :class="{ active: gender === 'female' }" @click="gender = 'female'">女</view>
           </view>
         </view>
       </view>
@@ -63,8 +63,8 @@
         <view class="form-item">
           <text class="label">您的性别</text>
           <view class="gender-group">
-            <view class="gender-btn" :class="{ active: gender1 === 'male' }" @click="gender1 = 'male'">乾造 (男)</view>
-            <view class="gender-btn" :class="{ active: gender1 === 'female' }" @click="gender1 = 'female'">坤造 (女)</view>
+            <view class="gender-btn" :class="{ active: gender1 === 'male' }" @click="gender1 = 'male'">男</view>
+            <view class="gender-btn" :class="{ active: gender1 === 'female' }" @click="gender1 = 'female'">女</view>
           </view>
         </view>
 
@@ -76,16 +76,16 @@
         <view class="form-item">
           <text class="label">对方性别</text>
           <view class="gender-group">
-            <view class="gender-btn" :class="{ active: gender2 === 'male' }" @click="gender2 = 'male'">乾造 (男)</view>
-            <view class="gender-btn" :class="{ active: gender2 === 'female' }" @click="gender2 = 'female'">坤造 (女)</view>
+            <view class="gender-btn" :class="{ active: gender2 === 'male' }" @click="gender2 = 'male'">男</view>
+            <view class="gender-btn" :class="{ active: gender2 === 'female' }" @click="gender2 = 'female'">女</view>
           </view>
         </view>
 
         <view class="form-item">
           <text class="label">关系性质</text>
           <view class="gender-group">
-            <view class="gender-btn" :class="{ active: relationType === 'love' }" @click="relationType = 'love'">💖 姻缘恋爱</view>
-            <view class="gender-btn" :class="{ active: relationType === 'business' }" @click="relationType = 'business'">💰 合伙求财</view>
+            <view class="gender-btn" :class="{ active: relationType === 'love' }" @click="relationType = 'love'">💖 关系相处</view>
+            <view class="gender-btn" :class="{ active: relationType === 'business' }" @click="relationType = 'business'">💰 合作发展</view>
             <view class="gender-btn" :class="{ active: relationType === 'friend' }" @click="relationType = 'friend'">🤝 知己知彼</view>
           </view>
         </view>
@@ -94,20 +94,20 @@
     </view>
 
     <button class="submit-btn" @click="calculate" :disabled="!canSubmit" v-if="!result && !loading">
-      {{ activeTab === 'single' ? '开始推演姓名格局' : '测算姓名配对契合' }}
+      {{ activeTab === 'single' ? '开始分析名字格局' : '分析名字配对契合' }}
     </button>
 
     <!-- 计算中等待状态 -->
     <view class="calculating-state" v-if="loading">
       <view class="bagua-icon"></view>
       <text class="calculating-text">
-        {{ activeTab === 'single' ? '正在排定天格人格，窥算运势格位...' : '正在拨动太极两仪，测算双方配对磁场...' }}
+        {{ activeTab === 'single' ? '正在分析姓名笔画，计算字义能量...' : '正在比对双方名字，分析契合度磁场...' }}
       </text>
     </view>
 
     <!-- 测算结果：卷轴展开动效 -->
     <view class="result-section" v-if="result && !loading">
-      <text class="section-title">📜 {{ result.isMatch ? '双人天命契合报告' : '姓名推演吉凶法卷' }} 📜</text>
+      <text class="section-title">📜 {{ result.isMatch ? '双人姓名契合报告' : '姓名解析报告' }} 📜</text>
       
       <view class="scroll-wrapper">
         <view class="scroll-handle left"></view>
@@ -148,7 +148,7 @@
               <view class="result-divider"></view>
 
               <view class="interpretation-area">
-                <text class="scroll-section-title">📖 五格命理总批</text>
+                <text class="scroll-section-title">📖 五格性格总评</text>
                 <text class="interpretation-text">{{ result.analysis }}</text>
               </view>
 
@@ -196,7 +196,7 @@
               <view class="result-divider"></view>
 
               <view class="interpretation-area">
-                <text class="scroll-section-title">🔮 天命五行生克总批</text>
+                <text class="scroll-section-title">🔮 五行特征与生克总评</text>
                 <text class="interpretation-text">{{ result.analysis }}</text>
               </view>
             </view>
@@ -259,7 +259,7 @@ const share = () => {
   if (!result.value) return
   const query = {
     type: result.value.isMatch ? 'nameMatch' : 'name',
-    title: result.value.isMatch ? '姓名配对契合报告' : '姓名吉凶分析法卷',
+    title: result.value.isMatch ? '姓名配对契合报告' : '姓名综合分析报告',
     name: result.value.isMatch ? `${result.value.name1} 与 ${result.value.name2}` : result.value.name,
     score: result.value.isMatch ? result.value.score : 85,
     analysis: result.value.analysis || ''

@@ -9,7 +9,7 @@
       <view class="section">
         <text class="section-title">一、总则</text>
         <text class="section-content">
-          欢迎使用"算命小程序"（以下简称"本小程序"）。请您在使用本小程序之前，仔细阅读并充分理解本协议的全部内容。如果您不同意本协议的任何条款，请停止使用本小程序。
+          欢迎使用"今日星能量"（以下简称"本小程序"）。请您在使用本小程序之前，仔细阅读并充分理解本协议的全部内容。如果您不同意本协议的任何条款，请停止使用本小程序。
         </text>
       </view>
       
@@ -19,7 +19,7 @@
           本小程序提供以下服务：
         </text>
         <text class="section-content">1. 生辰八字分析</text>
-        <text class="section-content">2. 星座运势查询</text>
+        <text class="section-content">2. 星座能量查询</text>
         <text class="section-content">3. 塔罗牌占卜</text>
         <text class="section-content">4. 姓名测算</text>
         <text class="section-content">5. 风水分析</text>

@@ -1,7 +1,7 @@
 <template>
   <view class="page-container" :class="themeClass">
     <view class="header">
-      <text class="title">面相手相</text>
+      <text class="title">AI颜值测试</text>
       <text class="subtitle">AI智能识别，趣味分析</text>
     </view>
 
@@ -11,7 +11,7 @@
         <view v-else class="upload-placeholder">
           <text class="upload-icon">📷</text>
           <text class="upload-text">点击上传照片</text>
-          <text class="upload-hint">支持面相或手相照片</text>
+          <text class="upload-hint">支持面相或掌纹特征照片</text>
         </view>
         <!-- 实时 AI 视觉特征锚点扫描画布 -->
         <canvas 
@@ -31,11 +31,11 @@
     <view class="type-selector">
       <view class="type-item" :class="{ active: analysisType === 'face' }" @click="setAnalysisType('face')">
         <text class="type-icon">👤</text>
-        <text class="type-name">面相分析</text>
+        <text class="type-name">面部特征分析</text>
       </view>
       <view class="type-item" :class="{ active: analysisType === 'palm' }" @click="setAnalysisType('palm')">
         <text class="type-icon">✋</text>
-        <text class="type-name">手相分析</text>
+        <text class="type-name">掌纹特征分析</text>
       </view>
     </view>
 
@@ -52,7 +52,7 @@
       </view>
 
       <view class="analysis-card">
-        <text class="card-title">运势解读</text>
+        <text class="card-title">能量解读</text>
         <text class="analysis-text">{{ result.fortune }}</text>
       </view>
 
@@ -70,6 +70,9 @@
     </view>
 
     <canvas id="detectCanvas" canvas-id="detectCanvas" class="detect-canvas"></canvas>
+    
+    <!-- 微信隐私指引授权弹窗 -->
+    <PrivacyPopup />
   </view>
 </template>
 
@@ -77,6 +80,7 @@
 import { getCurrentInstance, ref, nextTick } from 'vue'
 import { facePalmAnalysisApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
+import PrivacyPopup from '@/components/PrivacyPopup.vue'
 
 const imageSrc = ref('')
 const analysisType = ref('face')
@@ -211,7 +215,7 @@ const drawFaceScan = (ctx, W, H, p) => {
   } else if (p < 90) {
     activeScanText.value = '正在分析地阁与腮骨轮廓...'
   } else {
-    activeScanText.value = 'AI 正在融合生肖五行，测算运势中...'
+    activeScanText.value = 'AI 正在融合生肖五行，分析特征中...'
   }
 
   // 连线定义
@@ -312,7 +316,7 @@ const drawPalmScan = (ctx, W, H, p) => {
   } else if (p < 90) {
     activeScanText.value = '正在勾勒感情线走向...'
   } else {
-    activeScanText.value = 'AI 正在解析掌丘五行，测算运势中...'
+    activeScanText.value = 'AI 正在解析掌丘五行，分析特征中...'
   }
 
   lines.forEach((line) => {
@@ -392,13 +396,23 @@ const chooseImage = () => {
     success: (res) => {
       imageSrc.value = res.tempFilePaths[0]
       result.value = null
+    },
+    fail: (err) => {
+      console.error('选择照片失败:', err)
+      if (err.errMsg && (err.errMsg.includes('cancel') || err.errMsg.includes('deny'))) {
+        return
+      }
+      uni.showToast({
+        title: '无法获取照片，请确保已授予相机和相册权限',
+        icon: 'none'
+      })
     }
   })
 }
 
 const getBase64Image = (filePath) => {
   return new Promise((resolve, reject) => {
-    // #ifdef MP-WECHAT
+    // #ifdef MP-WEIXIN
     uni.getFileSystemManager().readFile({
       filePath: filePath,
       encoding: 'base64',
@@ -406,7 +420,7 @@ const getBase64Image = (filePath) => {
       fail: reject
     })
     // #endif
-    // #ifndef MP-WECHAT
+    // #ifndef MP-WEIXIN
     if (typeof window !== 'undefined' && typeof window.FileReader !== 'undefined') {
       fetch(filePath)
         .then(res => res.blob())
@@ -443,11 +457,19 @@ const analyze = async () => {
     }
 
     if (!isValid) {
-      uni.showToast({
-        title: '请确保照片清晰且光线均匀',
-        icon: 'none'
+      const errorMsg = analysisType.value === 'face'
+        ? '未检测到清晰的人脸，请上传清晰、正面且光线均匀的脸部照片。'
+        : '未检测到清晰的手掌，请上传清晰、无遮挡的手掌照片。';
+      
+      uni.showModal({
+        title: '识别失败',
+        content: errorMsg,
+        showCancel: false
       })
-      // 仅做温和提示，不完全阻断用户操作，交由后端多模态大模型智能分析
+      
+      loading.value = false
+      stopScanAnimation()
+      return
     }
 
     // 运行扫描动效持续至少 2.5 秒，增强体验感
@@ -507,10 +529,10 @@ const share = () => {
   if (!result.value) return
   const query = {
     type: analysisType.value === 'face' ? 'face' : 'palm',
-    title: result.value.featureTitle || (analysisType.value === 'face' ? 'AI面相精细剖析' : 'AI手相精细剖析'),
-    name: '本命信士',
+    title: result.value.featureTitle || (analysisType.value === 'face' ? 'AI面部精细剖析' : 'AI掌纹特征精细剖析'),
+    name: '分析对象',
     score: 90,
-    analysis: `${result.value.features}\n\n【运势解读】\n${result.value.fortune}\n\n【性格特质】\n${result.value.personality}`
+    analysis: `${result.value.features}\n\n【能量解读】\n${result.value.fortune}\n\n【性格特质】\n${result.value.personality}`
   }
   uni.navigateTo({
     url: `/pages/share/index?type=${query.type}&title=${encodeURIComponent(query.title)}&name=${encodeURIComponent(query.name)}&score=${query.score}&analysis=${encodeURIComponent(query.analysis)}`

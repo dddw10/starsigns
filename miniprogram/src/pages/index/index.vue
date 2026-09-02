@@ -3,13 +3,13 @@
     <view class="header">
       <view class="greeting">
         <view class="title-row">
-          <text class="title">今日运势</text>
+          <text class="title">今日能量</text>
           <button 
+            v-if="!hasCheckedIn"
             class="checkin-btn" 
-            :class="{ checked: hasCheckedIn }" 
             @click="handleCheckIn"
           >
-            {{ hasCheckedIn ? '已签到' : '签到 +1次' }}
+            每日签到
           </button>
         </view>
         <text class="date">{{ todayDate }}</text>
@@ -17,10 +17,10 @@
       <ThemeSwitcher />
     </view>
 
-    <!-- 情况 A：已设置生辰八字，显示个性化运势 -->
+    <!-- 情况 A：已设置生日密码，显示个性化运势 -->
     <view class="fortune-card" v-if="hasBirthInfo" @click="openBirthDrawer">
       <view class="card-header">
-        <text class="card-title">专属运势 ({{ todayFortune.score }}分 - {{ todayFortune.levelName }})</text>
+        <text class="card-title">专属灵感 ({{ todayFortune.score }}分 - {{ todayFortune.levelName }})</text>
         <view class="rating">
           <text v-for="i in 5" :key="i" class="star">{{ i <= todayFortune.rating ? '★' : '☆' }}</text>
         </view>
@@ -54,24 +54,24 @@
 
       <!-- 快捷推送开关，嵌入卡片底部 -->
       <view class="push-toggle-row" @click.stop>
-        <text class="push-toggle-label">🔔 每日 08:00 运势推送提醒</text>
+        <text class="push-toggle-label">🔔 每日 00:00 灵感推送提醒</text>
         <switch :checked="pushEnabled" @change="togglePush" color="var(--primary-color, #c41e3a)" style="transform: scale(0.8);" />
       </view>
     </view>
 
-    <!-- 情况 B：未设置生辰八字，显示解锁引导卡片 -->
+    <!-- 情况 B：未设置生日密码，显示解锁引导卡片 -->
     <view class="fortune-card empty-state" v-else @click="openBirthDrawer">
       <view class="empty-content">
         <view class="empty-icon">🔮</view>
-        <text class="empty-title">查看您的专属每日运势</text>
-        <text class="empty-desc">只需配置您的出生日期，系统将根据您的生辰八字精准解析今日宜忌、幸运色及专属避坑建议。</text>
-        <button class="setup-btn">一键生成专属运势</button>
+        <text class="empty-title">查看您的专属每日灵感</text>
+        <text class="empty-desc">只需配置您的出生日期，系统将根据您的生日密码精准解析今日宜忌、幸运色及专属避坑建议。</text>
+        <button class="setup-btn">一键生成专属灵感</button>
       </view>
     </view>
 
     <!-- 测算功能网格 -->
     <view class="service-grid">
-      <view class="service-item" v-for="service in services" :key="service.id" @click="navigateTo(service.page)">
+      <view class="service-item" v-for="service in activeServices" :key="service.id" @click="navigateTo(service.page)">
         <view class="service-icon">{{ service.icon }}</view>
         <text class="service-name">{{ service.name }}</text>
         <text class="service-desc">{{ service.desc }}</text>
@@ -82,7 +82,7 @@
     <view class="push-banner" v-if="!pushEnabled && hasBirthInfo" @click="goToPushSettings">
       <text class="push-icon">🔔</text>
       <view class="push-info">
-        <text class="push-title">每日运势推送已关闭</text>
+        <text class="push-title">每日灵感推送已关闭</text>
         <text class="push-desc">点此进入设置，开启每日专属福运推送</text>
       </view>
       <text class="push-arrow">›</text>
@@ -110,9 +110,9 @@
           </view>
           
           <view class="modal-form-item">
-            <text class="modal-label">出生时辰 (选填)</text>
+            <text class="modal-label">出生时辰</text>
             <picker :range="timeSlots" :range-key="'label'" @change="onTempTimeChange">
-              <view class="modal-picker-value">{{ tempSelectedTime?.label || '未知 / 不清楚' }}</view>
+              <view class="modal-picker-value">{{ tempSelectedTime?.label || '请选择时辰（决定时柱）' }}</view>
             </picker>
           </view>
 
@@ -125,16 +125,16 @@
           </view>
         </view>
         <view class="modal-footer">
-          <button class="modal-submit-btn" @click="saveBirthInfo" :disabled="!tempBirthDate">保存并生成今日运势</button>
+          <button class="modal-submit-btn" @click="saveBirthInfo" :disabled="!tempBirthDate || !tempSelectedTime">保存并生成今日能量</button>
         </view>
       </view>
     </view>
 
-    <!-- 悬浮神兽气泡小助手 (支持自由移动拖拽) -->
+    <!-- 悬浮神兽气泡小助手 (支持自由移动拖拽，带贴边、闲置半透明、气泡自适应、震动反馈) -->
     <movable-area class="movable-area-container" v-if="isLoggedIn && petData">
       <movable-view 
         class="floating-assistant" 
-        :class="{ 'no-bubble': !showAssistantBubble }"
+        :class="{ 'no-bubble': !showAssistantBubble, 'is-on-left': isOnLeft, 'is-idle': isIdle }"
         :style="{ 
           width: showAssistantBubble ? '300rpx' : '90rpx', 
           height: showAssistantBubble ? '220rpx' : '90rpx' 
@@ -145,10 +145,13 @@
         inertia="true"
         damping="20"
         friction="2"
+        @change="onAssistantChange"
+        @touchstart="onAssistantStart"
+        @touchend="onAssistantEnd"
       >
         <view class="assistant-bubble" v-if="showAssistantBubble">
           <text class="bubble-text">{{ getAssistantTooltip() }}</text>
-          <text class="bubble-close" @click.stop="showAssistantBubble = false">×</text>
+          <text class="bubble-close" @click.stop="closeBubble">×</text>
         </view>
         <view class="assistant-pet" :class="{ warning: petData.hunger < 20 || petData.mood < 30 }" @click="goToUserCenter">
           <text class="pet-emoji">{{ getBeastEmoji(petData.type, petData.level) }}</text>
@@ -157,6 +160,37 @@
         </view>
       </movable-view>
     </movable-area>
+
+    <!-- 微信隐私指引授权弹窗 -->
+    <PrivacyPopup />
+
+    <!-- 微信手机号一键绑定弹窗 (仅在微信小程序端有效，完全拦截首页交互) -->
+    <!-- #ifdef MP-WEIXIN -->
+    <view class="bind-phone-container" v-if="showBindPhoneModal">
+      <view class="bind-phone-body">
+        <view class="bind-phone-icon">📱</view>
+        <view class="bind-phone-title">绑定手机号码</view>
+        <view class="bind-phone-desc">为了您的账号安全以及提供更好的生日密码分析，请完成手机号码一键绑定。</view>
+        <view class="bind-phone-agreement">
+          <checkbox-group @change="onAgreementChange">
+            <label class="agreement-label">
+              <checkbox value="agree" :checked="agreementChecked" color="var(--primary-color, #c41e3a)" style="transform: scale(0.75);" />
+              <text class="agreement-text">我已阅读并同意</text>
+            </label>
+          </checkbox-group>
+          <text class="agreement-link" @click="openPrivacyContract">《今日星能量用户隐私保护指引》</text>
+        </view>
+        <button 
+          class="bind-phone-submit-btn" 
+          open-type="getPhoneNumber" 
+          @getphonenumber="onGetPhoneNumber"
+          :disabled="!agreementChecked"
+        >
+          本机号码一键绑定
+        </button>
+      </view>
+    </view>
+    <!-- #endif -->
   </view>
 </template>
 
@@ -167,9 +201,10 @@ import { useThemeStore } from '@/store/theme'
 import { usePushStore } from '@/store/push'
 import { useUserStore } from '@/store/user'
 import { getDailyFortuneApi } from '@/api/fortune'
-import { updateBirthInfoApi, checkInApi } from '@/api/user'
+import { updateBirthInfoApi, checkInApi, bindPhoneApi } from '@/api/user'
 import { getPetStatusApi } from '@/api/pet'
 import ThemeSwitcher from '@/components/theme-switcher/ThemeSwitcher.vue'
+import PrivacyPopup from '@/components/PrivacyPopup.vue'
 
 const themeStore = useThemeStore()
 const pushStore = usePushStore()
@@ -180,6 +215,38 @@ const petData = ref(null)
 const showAssistantBubble = ref(true)
 const assistantX = ref(0)
 const assistantY = ref(0)
+
+// 悬浮助手交互优化状态
+const isOnLeft = ref(false)
+const isIdle = ref(false)
+const isDragging = ref(false)
+let currentX = 0
+let currentY = 0
+let idleTimer = null
+
+// 悬浮助手只需要窗口宽高：uni.getSystemInfoSync() 已废弃且每次调用都是一次同步桥接，
+// 拖拽过程中会被反复触发，这里换成 getWindowInfo 并缓存一份
+let windowInfoCache = null
+
+function getWindowSize() {
+  if (windowInfoCache) return windowInfoCache
+  const info = typeof uni.getWindowInfo === 'function'
+    ? uni.getWindowInfo()
+    : uni.getSystemInfoSync()
+  windowInfoCache = {
+    windowWidth: info.windowWidth || 375,
+    windowHeight: info.windowHeight || 667
+  }
+  return windowInfoCache
+}
+
+// H5 下窗口是可以被拖动改变的，尺寸变了就把缓存丢掉
+if (typeof uni.onWindowResize === 'function') {
+  uni.onWindowResize(() => {
+    windowInfoCache = null
+  })
+}
+let bubbleTimer = null
 
 const getBeastEmoji = (type, level) => {
   if (level === 0 || type === 'egg') return '🥚'
@@ -221,7 +288,7 @@ const getAssistantTooltip = () => {
   if (!petData.value) return ''
   if (petData.value.hunger < 20) return '您的神兽快饿扁了 🥺，快去喂喂它！'
   if (petData.value.mood < 30) return '神兽心情很差 🥺，快去抚摸互动！'
-  if (petData.value.giftBoxes > 0) return `您有 ${petData.value.giftBoxes} 个气运福袋待开启 🎁！`
+  if (petData.value.giftBoxes > 0) return `您有 ${petData.value.giftBoxes} 个星能福袋待开启 🎁！`
   return '神兽正在默默为您的今日气场祈福 ✨'
 }
 
@@ -241,15 +308,235 @@ const loadPetStatus = async () => {
   }
 }
 
+// 关闭气泡（带防跳动位移补偿）
+const closeBubble = () => {
+  if (!showAssistantBubble.value) return
+  
+  try {
+    const screenWidth = getWindowSize().windowWidth
+
+    // 垂直位移补偿：气泡在上方，占 130rpx 高度差
+    const offsetY = (130 * screenWidth) / 750
+    assistantY.value += offsetY
+    
+    // 水平位移补偿：当在右侧贴边时，气泡向左展开导致容器多出 210rpx 宽度差，需右移补偿
+    if (!isOnLeft.value) {
+      const offsetX = (210 * screenWidth) / 750
+      assistantX.value += offsetX
+    }
+  } catch (err) {
+    console.error('closeBubble position adjustment failed:', err)
+  }
+  
+  showAssistantBubble.value = false
+}
+
+// 打开气泡（带防跳动位移补偿）
+const openBubble = () => {
+  if (showAssistantBubble.value) return
+  
+  try {
+    const screenWidth = getWindowSize().windowWidth
+
+    // 垂直位移还原
+    const offsetY = (130 * screenWidth) / 750
+    assistantY.value -= offsetY
+    
+    // 水平位移还原
+    if (!isOnLeft.value) {
+      const offsetX = (210 * screenWidth) / 750
+      assistantX.value -= offsetX
+    }
+  } catch (err) {
+    console.error('openBubble position adjustment failed:', err)
+  }
+  
+  showAssistantBubble.value = true
+  startBubbleTimer()
+}
+
+// 开启气泡自动折叠定时器
+const startBubbleTimer = () => {
+  if (bubbleTimer) clearTimeout(bubbleTimer)
+  bubbleTimer = setTimeout(() => {
+    closeBubble()
+  }, 6000) // 6秒后自动收起气泡
+}
+
+// 重置闲置状态与定时器
+const resetIdleTimer = () => {
+  isIdle.value = false
+  if (idleTimer) clearTimeout(idleTimer)
+  if (!isDragging.value) {
+    idleTimer = setTimeout(() => {
+      isIdle.value = true
+    }, 4000) // 4秒无交互自动半透明
+  }
+}
+
+// 触摸/拖拽开始
+const onAssistantStart = () => {
+  isDragging.value = true
+  isIdle.value = false
+  if (idleTimer) clearTimeout(idleTimer)
+  // 拖拽前关闭气泡，避免挡住屏幕
+  closeBubble()
+}
+
+// 拖拽位置改变
+const onAssistantChange = (e) => {
+  if (e.detail.source === 'touch') {
+    currentX = e.detail.x
+    currentY = e.detail.y
+  }
+}
+
+// 拖拽结束：自动吸附边缘、震动反馈
+const onAssistantEnd = () => {
+  isDragging.value = false
+  
+  try {
+    const screenWidth = getWindowSize().windowWidth
+    // 此时气泡必已关闭，使用 90rpx = 45px 图标大小
+    const assistantWidth = 45
+    const middle = screenWidth / 2
+    const centerX = currentX + assistantWidth / 2
+    
+    let targetX = 0
+    if (centerX < middle) {
+      targetX = 10 // 吸附到左侧，留出10px边距
+      isOnLeft.value = true
+    } else {
+      targetX = screenWidth - assistantWidth - 10 // 吸附到右侧，留出10px边距
+      isOnLeft.value = false
+    }
+    
+    // 同步最后坐标并设置吸附目标值以触发uni-app动画
+    assistantX.value = currentX
+    assistantY.value = currentY
+    
+    setTimeout(() => {
+      assistantX.value = targetX
+      // #ifdef MP-WEIXIN
+      uni.vibrateShort({ type: 'light' })
+      // #endif
+    }, 50)
+  } catch (err) {
+    console.error('Snap calculation failed:', err)
+  }
+  
+  resetIdleTimer()
+}
+
 onShow(() => {
   if (isLoggedIn.value) {
     loadPetStatus()
+    // 进入时若未展示，则以气泡形式展开，并开启折叠定时
+    if (!showAssistantBubble.value) {
+      openBubble()
+    } else {
+      startBubbleTimer()
+    }
+    resetIdleTimer()
   }
 })
 
 const pushEnabled = computed(() => pushStore.pushEnabled)
 
-// 判断是否已配置生辰八字
+const agreementChecked = ref(false)
+
+const showBindPhoneModal = computed(() => {
+  return false
+})
+
+const onAgreementChange = (e) => {
+  agreementChecked.value = e.detail.value.includes('agree')
+}
+
+const openPrivacyContract = () => {
+  // #ifdef MP-WEIXIN
+  if (wx.openPrivacyContract) {
+    wx.openPrivacyContract({
+      fail: (err) => {
+        uni.showToast({
+          title: '打开隐私协议失败，请稍后重试',
+          icon: 'none'
+        })
+        console.error('openPrivacyContract fail', err)
+      }
+    })
+  } else {
+    uni.showModal({
+      title: '提示',
+      content: '请更新微信版本后查看隐私指引。',
+      showCancel: false
+    })
+  }
+  // #endif
+}
+
+const onGetPhoneNumber = async (e) => {
+  if (!e.detail.code) {
+    console.log('获取手机号失败信息:', e.detail)
+    const errMsg = e.detail.errMsg || ''
+    // 检测是否为个人主体无权限、测试号无权限或环境限制
+    if (errMsg.includes('no permission') || errMsg.includes('fail_user_deny') || errMsg.includes('fail:no permission') || errMsg.includes('fail')) {
+      uni.showModal({
+        title: '主体权限提示',
+        content: '当前小程序 AppID 无“微信获取手机号”权限（个人主体或测试号不支持该官方接口）。是否使用模拟手机号一键绑定进行测试？',
+        success: async (res) => {
+          if (res.confirm) {
+            // showLoading 和 showToast 共用一个原生浮层：提示必须排在 hideLoading 之后，
+            // 否则绑定成功/失败的提示都会被 hideLoading 一起收走，用户什么反馈都看不到
+            let toast = null
+            uni.showLoading({ title: '正在模拟绑定...' })
+            try {
+              const bindRes = await bindPhoneApi({ code: 'mock-phone-code' })
+              if (bindRes.code === 0) {
+                toast = { title: '模拟绑定成功', icon: 'success' }
+                await userStore.fetchUserInfo()
+              } else {
+                toast = { title: bindRes.message || '绑定失败', icon: 'none' }
+              }
+            } catch (err) {
+              toast = { title: err.message || '绑定请求失败', icon: 'none' }
+            } finally {
+              uni.hideLoading()
+            }
+            if (toast) uni.showToast(toast)
+          }
+        }
+      })
+      return
+    }
+
+    uni.showToast({
+      title: '您已拒绝授权获取手机号',
+      icon: 'none'
+    })
+    return
+  }
+
+  // 同上：提示排在 hideLoading 之后，否则绑定结果会被静默吞掉
+  let toast = null
+  uni.showLoading({ title: '正在绑定手机号...' })
+  try {
+    const res = await bindPhoneApi({ code: e.detail.code })
+    if (res.code === 0) {
+      toast = { title: '手机号绑定成功', icon: 'success' }
+      await userStore.fetchUserInfo()
+    } else {
+      toast = { title: res.message || '绑定失败，请重试', icon: 'none' }
+    }
+  } catch (err) {
+    toast = { title: err.message || '绑定请求失败，请重试', icon: 'none' }
+  } finally {
+    uni.hideLoading()
+  }
+  if (toast) uni.showToast(toast)
+}
+
+// 判断是否已配置生日密码
 const hasBirthInfo = computed(() => {
   return !!(userStore.userInfo && userStore.userInfo.birthInfo && userStore.userInfo.birthInfo.solarDate)
 })
@@ -286,14 +573,24 @@ const todayFortune = ref({
 })
 
 const services = [
-  { id: 'bazi', name: '生辰八字', desc: '命理分析', icon: '📿', page: '/pages/bazi/index' },
-  { id: 'constellation', name: '星座运势', desc: '每日运程', icon: '⭐', page: '/pages/constellation/index' },
-  { id: 'tarot', name: '塔罗占卜', desc: '命运指引', icon: '🃏', page: '/pages/tarot/index' },
+  { id: 'bazi', name: '生日密码', desc: '性格分析', icon: '📿', page: '/pages/bazi/index' },
+  { id: 'constellation', name: '星座能量', desc: '每日灵感', icon: '⭐', page: '/pages/constellation/index' },
+  { id: 'tarot', name: '灵感卡牌', desc: '灵感启发', icon: '🃏', page: '/pages/tarot/index' },
   { id: 'name', name: '姓名测算', desc: '五格分析', icon: '📝', page: '/pages/name/index' },
-  { id: 'fengshui', name: '风水分析', desc: '居家办公', icon: '🏠', page: '/pages/fengshui/index' },
-  { id: 'face', name: '面相手相', desc: 'AI识别', icon: '👁', page: '/pages/face/index' },
-  { id: 'chat', name: 'AI命理大师', desc: '实时解惑', icon: '🔮', page: '/pages/chat/index' }
+  { id: 'fengshui', name: '空间美学', desc: '居家办公', icon: '🏠', page: '/pages/fengshui/index' },
+  { id: 'face', name: 'AI颜值测试', desc: 'AI识别', icon: '👁', page: '/pages/face/index' },
+  { id: 'chat', name: 'AI性格分析师', desc: '实时解惑', icon: '🔮', page: '/pages/chat/index' }
 ]
+
+const auditMode = computed(() => userStore.auditMode)
+
+const activeServices = computed(() => {
+  if (auditMode.value) {
+    // 审核模式下只展示“星座能量”和“空间美学”这两个完全符合个人主体合规要求的板块
+    return services.filter(s => s.id === 'constellation' || s.id === 'fengshui')
+  }
+  return services
+})
 
 // 弹窗配置变量
 const showBirthModal = ref(false)
@@ -335,57 +632,67 @@ const handleCheckIn = async () => {
   // 若用户未登录，自动发起登录
   if (!userStore.isLoggedIn) {
     uni.showLoading({ title: '自动登录中...' })
+    let loginToast = null
     try {
       const loginRes = await userStore.login()
       if (!loginRes.success) {
-        throw new Error(loginRes.message || '快捷登录失败')
+        loginToast = { title: loginRes.message || '快捷登录失败', icon: 'none' }
       }
     } catch (err) {
-      uni.showToast({ title: err.message || '登录失败，请手动登录', icon: 'none' })
-      return
+      loginToast = { title: err.message || '登录失败，请手动登录', icon: 'none' }
     } finally {
       uni.hideLoading()
+    }
+    // loading 和 toast 共用同一个原生浮层，提示必须排在 hideLoading 之后
+    if (loginToast) {
+      uni.showToast(loginToast)
+      return
     }
   }
 
   uni.showLoading({ title: '签到中...' })
+  let toast = null
   try {
     const res = await checkInApi()
     if (res.code === 0) {
-      uni.showToast({ title: '签到成功，免费次数+1！', icon: 'success' })
+      toast = { title: '签到成功！', icon: 'success' }
       await userStore.fetchUserInfo()
     } else {
-      uni.showToast({ title: res.message || '签到失败', icon: 'none' })
+      toast = { title: res.message || '签到失败', icon: 'none' }
     }
   } catch (err) {
-    uni.showToast({ title: err.message || '网络错误，请稍后重试', icon: 'none' })
+    toast = { title: err.message || '网络错误，请稍后重试', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
+  if (toast) uni.showToast(toast)
 }
 
 // 开启或关闭每日运势提醒
 const togglePush = async (e) => {
   const value = e.detail.value
   uni.showLoading({ title: '同步中...' })
+  let toast = null
   try {
     await pushStore.togglePush(value)
-    uni.showToast({
+    toast = {
       title: pushStore.pushEnabled ? '已成功开启每日提醒' : '已关闭提醒',
       icon: 'none'
-    })
+    }
   } catch (err) {
-    uni.showToast({ title: '设置推送失败，请重试', icon: 'none' })
+    toast = { title: '设置推送失败，请重试', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
+  if (toast) uni.showToast(toast)
 }
 
 // 弹出快捷设置抽屉
 const openBirthDrawer = () => {
   const info = userStore.userInfo?.birthInfo || {}
   tempBirthDate.value = info.solarDate || ''
-  tempSelectedTime.value = timeSlots.find(t => t.value === info.birthTime) || timeSlots[0]
+  // 认不出就留空让用户自己选，别默认成 timeSlots[0]（子时）——那等于替用户编一个时柱
+  tempSelectedTime.value = timeSlots.find(t => t.value === info.birthTime) || null
   tempGender.value = userStore.userInfo?.gender === 2 ? 'female' : 'male'
   showBirthModal.value = true
 }
@@ -405,8 +712,15 @@ const onTempTimeChange = (e) => {
 // 保存生辰信息（包含未登录状态自动登录）
 const saveBirthInfo = async () => {
   if (!tempBirthDate.value) return
-  
+  // 时辰是四柱里的时柱，服务端只认十二时辰。以前这里会传「未知」，
+  // 被 validator 拒成 400（更早的版本则静默按子时排盘，结果是错的）
+  if (!tempSelectedTime.value) {
+    uni.showToast({ title: '请先选择出生时辰', icon: 'none' })
+    return
+  }
+
   uni.showLoading({ title: '保存并分析中...' })
+  let toast = null
   try {
     // 若未登录，先静默登录
     if (!userStore.isLoggedIn) {
@@ -415,27 +729,30 @@ const saveBirthInfo = async () => {
         throw new Error(loginRes.message || '微信快捷登录失败，请重试')
       }
     }
-    
-    // 更新生辰八字
+
+    // 更新生日密码
     const res = await updateBirthInfoApi({
       solarDate: tempBirthDate.value,
-      birthTime: tempSelectedTime.value?.value || '未知',
+      birthTime: tempSelectedTime.value.value,
       gender: tempGender.value
     })
-    
+
     if (res.code === 0) {
-      uni.showToast({ title: '专属运势生成成功', icon: 'success' })
+      toast = { title: '专属灵感生成成功', icon: 'success' }
       await userStore.fetchUserInfo()
       showBirthModal.value = false
       await loadDailyFortune()
     } else {
-      uni.showToast({ title: res.message || '配置失败', icon: 'none' })
+      toast = { title: res.message || '配置失败', icon: 'none' }
     }
   } catch (err) {
-    uni.showToast({ title: err.message || '操作失败', icon: 'none' })
+    toast = { title: err.message || '操作失败', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
+  // loading 和 toast 共用同一个原生浮层，提示必须排在 hideLoading 之后，
+  // 否则 finally 里的 hideLoading 会把刚弹出来的提示一起关掉
+  if (toast) uni.showToast(toast)
 }
 
 const loadDailyFortune = async () => {
@@ -487,12 +804,12 @@ onMounted(() => {
   loadDailyFortune()
   // 计算神兽初始右下角位置 (避开底部 tabbar 且支持拖拽)
   try {
-    const sys = uni.getSystemInfoSync()
+    const { windowWidth, windowHeight } = getWindowSize()
     const assistantWidth = 150 // 300rpx in px
     const assistantHeight = 120 // 240rpx in px
     // 初始距离右侧 15px，距离底端 110px (避开 50px tabbar + 内容)
-    assistantX.value = sys.windowWidth - assistantWidth - 15
-    assistantY.value = sys.windowHeight - assistantHeight - 110
+    assistantX.value = windowWidth - assistantWidth - 15
+    assistantY.value = windowHeight - assistantHeight - 110
   } catch (e) {
     assistantX.value = 200
     assistantY.value = 450
@@ -912,6 +1229,19 @@ onMounted(() => {
   flex-direction: column;
   align-items: flex-end;
   pointer-events: auto;
+  transition: opacity 0.3s ease;
+}
+
+.floating-assistant.is-on-left {
+  align-items: flex-start;
+}
+
+.floating-assistant.is-idle {
+  opacity: 0.45;
+}
+
+.floating-assistant.is-idle:active {
+  opacity: 1;
 }
 
 .assistant-bubble {
@@ -1036,5 +1366,95 @@ onMounted(() => {
 }
 .icp-link:hover {
   color: var(--primary-color, #c41e3a);
+}
+
+/* 微信一键绑定手机号弹窗样式 */
+.bind-phone-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(15rpx);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 99999;
+}
+
+.bind-phone-body {
+  width: 80%;
+  max-width: 600rpx;
+  background: var(--card-bg, #fff);
+  border-radius: 30rpx;
+  padding: 50rpx 40rpx;
+  box-shadow: 0 20rpx 50rpx rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.bind-phone-icon {
+  font-size: 88rpx;
+  margin-bottom: 30rpx;
+}
+
+.bind-phone-title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: var(--text-primary, #333);
+  margin-bottom: 20rpx;
+}
+
+.bind-phone-desc {
+  font-size: 26rpx;
+  color: var(--text-secondary, #666);
+  line-height: 1.6;
+  margin-bottom: 40rpx;
+}
+
+.bind-phone-agreement {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  font-size: 22rpx;
+  color: var(--text-secondary, #666);
+  margin-bottom: 40rpx;
+  gap: 4rpx;
+}
+
+.agreement-label {
+  display: flex;
+  align-items: center;
+}
+
+.agreement-link {
+  color: var(--primary-color, #c41e3a);
+  text-decoration: underline;
+  display: inline;
+}
+
+.bind-phone-submit-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background: var(--primary-color, #c41e3a);
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: bold;
+  border-radius: 44rpx;
+  box-shadow: 0 6rpx 16rpx rgba(196, 30, 58, 0.2);
+  border: none;
+}
+
+.bind-phone-submit-btn[disabled] {
+  opacity: 0.5;
+  box-shadow: none;
+}
+.bind-phone-submit-btn::after {
+  border: none;
 }
 </style>

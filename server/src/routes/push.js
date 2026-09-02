@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pushController = require('../controllers/pushController');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { pushValidation } = require('../middleware/validator');
 const { strictRateLimiter } = require('../middleware/rateLimit');
 
@@ -24,6 +24,6 @@ router.get('/subscriptions', authMiddleware, pushController.getSubscriptions);
 router.get('/history', authMiddleware, pushController.getPushHistory);
 
 // 手动触发每日运势推送（管理员接口）
-router.post('/trigger-daily', authMiddleware, strictRateLimiter, pushController.triggerDailyPush);
+router.post('/trigger-daily', adminMiddleware, strictRateLimiter, pushController.triggerDailyPush);
 
 module.exports = router;

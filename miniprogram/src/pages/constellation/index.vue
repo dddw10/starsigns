@@ -42,7 +42,7 @@
     <!-- 运势结果展示 -->
     <view class="result-section" v-if="result && !loading">
       <view class="result-header">
-        <text class="result-title">🌟 {{ result.name }}今日运势详解</text>
+        <text class="result-title">🌟 {{ result.name }}今日能量解读</text>
         <view class="result-rating">
           <text v-for="i in 5" :key="i" class="star">{{ i <= result.rating ? '★' : '☆' }}</text>
         </view>
@@ -50,23 +50,23 @@
 
       <view class="result-card">
         <view class="result-item">
-          <text class="result-label">综合运势</text>
+          <text class="result-label">综合能量</text>
           <text class="result-value">{{ result.overall }}</text>
         </view>
         <view class="result-item">
-          <text class="result-label">爱情运势</text>
+          <text class="result-label">爱情能量</text>
           <text class="result-value">{{ result.love }}</text>
         </view>
         <view class="result-item">
-          <text class="result-label">事业运势</text>
+          <text class="result-label">事业能量</text>
           <text class="result-value">{{ result.career }}</text>
         </view>
         <view class="result-item">
-          <text class="result-label">财运运势</text>
+          <text class="result-label">财富能量</text>
           <text class="result-value">{{ result.wealth }}</text>
         </view>
         <view class="result-item">
-          <text class="result-label">健康运势</text>
+          <text class="result-label">健康能量</text>
           <text class="result-value">{{ result.health }}</text>
         </view>
       </view>
@@ -186,18 +186,18 @@ const generateResult = async (item) => {
     result.value = {
       name: data.name || item.name,
       rating: data.rating || 4,
-      overall: data.overall || '今日综合运势平稳。',
+      overall: data.overall || '今日综合能量平稳。',
       love: data.love || '感情运势平稳。',
-      career: data.career || '事业运势良好。',
+      career: data.career || '事业能量良好。',
       wealth: data.wealth || '财运平稳。',
-      health: data.health || '健康运势良好。',
+      health: data.health || '健康能量良好。',
       luckyColor: data.luckyColor || '#e74c3c',
       luckyNumber: data.luckyNumber || 7,
       match: data.match || '天秤座',
       advice: data.advice || '保持积极心态，把握机会。'
     }
   } catch (err) {
-    uni.showToast({ title: err.message || '获取运势失败', icon: 'none' })
+    uni.showToast({ title: err.message || '获取分析失败', icon: 'none' })
   } finally {
     loading.value = false
   }
@@ -207,10 +207,10 @@ const share = () => {
   if (!result.value) return
   const query = {
     type: 'constellation',
-    title: `${result.value.name}今日运势详解`,
-    name: '星曜信士',
+    title: `${result.value.name}今日能量解读`,
+    name: '星能体验官',
     score: result.value.rating * 20,
-    analysis: `【运势星盘】\n综合运势: ${result.value.overall}\n感情运势: ${result.value.love}\n事业运势: ${result.value.career}\n财运运势: ${result.value.wealth}\n健康运势: ${result.value.health}\n\n【速配开运】\n幸运数字: ${result.value.luckyNumber}\n速配星座: ${result.value.match}\n\n【行事批语】\n${result.value.advice}`
+    analysis: `【能量星盘】\n综合能量: ${result.value.overall}\n感情能量: ${result.value.love}\n事业能量: ${result.value.career}\n财富能量: ${result.value.wealth}\n健康能量: ${result.value.health}\n\n【速配增能】\n幸运数字: ${result.value.luckyNumber}\n速配星座: ${result.value.match}\n\n【行事建议】\n${result.value.advice}`
   }
   uni.navigateTo({
     url: `/pages/share/index?type=${query.type}&title=${encodeURIComponent(query.title)}&name=${encodeURIComponent(query.name)}&score=${query.score}&analysis=${encodeURIComponent(query.analysis)}`

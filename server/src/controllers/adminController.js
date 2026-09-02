@@ -1,4 +1,5 @@
 const adminService = require('../services/adminService');
+const { setAuditMode } = require('../config/systemConfig');
 
 /**
    * 分页获取用户意见反馈
@@ -36,3 +37,29 @@ exports.replyFeedback = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * 切换系统审核模式（小程序端的「简洁模式」）
+ */
+exports.toggleAuditMode = async (req, res, next) => {
+  try {
+    const { auditMode } = req.body;
+    if (typeof auditMode !== 'boolean') {
+      const err = new Error('参数错误，auditMode 必须为布尔值');
+      err.status = 400;
+      throw err;
+    }
+
+    // 落库并同步刷新 /api/config 的进程内缓存
+    await setAuditMode(auditMode);
+
+    res.json({
+      code: 0,
+      message: auditMode ? '已开启简洁模式' : '已关闭简洁模式，开放完整功能',
+      data: { auditMode }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

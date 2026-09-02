@@ -1,3 +1,7 @@
+# 生产编排。改完不会自动生效，要重新 deploy（deploy.js 会带 --env-file .env.production）。
+#
+# 重要：mongo/redis 只监听 127.0.0.1，容器之间仍然走 compose 内网（mongo:27017 / redis:6379），
+# 但公网扫不到这两个端口。如果这台机器之前已经用裸端口跑过，先在安全组/防火墙上确认 27017、6379 已封。
 services:
   app:
     build:
@@ -7,6 +11,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env.production
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "3000:3000"
     depends_on:
@@ -20,17 +26,25 @@ services:
     image: mongo:6.0
     container_name: fortune-mongo
     restart: unless-stopped
+    # 只对本机开放；容器间访问用服务名 mongo，不需要端口映射
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
+    environment:
+      # :? = 没配就让 compose 直接报错退出，避免又起一个没有密码的库
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME:?请在 .env.production 里设置 MONGO_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:?请在 .env.production 里设置 MONGO_ROOT_PASSWORD}
     volumes:
       - mongo-data:/data/db
+    command: ["mongod", "--auth"]
 
   redis:
     image: redis:7.2-alpine
     container_name: fortune-redis
     restart: unless-stopped
+    # 同上，只对本机开放
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?请在 .env.production 里设置 REDIS_PASSWORD}", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
 

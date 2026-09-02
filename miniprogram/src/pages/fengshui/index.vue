@@ -7,7 +7,7 @@
     <view class="form-section" v-if="!result && !loading">
       <text class="section-title">✨ 家宅气场堪舆 ✨</text>
       
-      <!-- 常用风水格局 -->
+      <!-- 常用空间格局 -->
       <view class="memory-section" v-if="commonFengshuiList && commonFengshuiList.length > 0">
         <text class="memory-label">💡 常用格局一键填入：</text>
         <view class="memory-list">
@@ -70,10 +70,10 @@
         </view>
       </view>
 
-      <!-- 九宫飞星空间吉凶格位图 -->
+      <!-- 九宫飞星空间能量分布图 -->
       <view class="analysis-card">
         <text class="card-title">☯️ 家宅九宫飞星格局图</text>
-        <text class="palace-intro">根据您的朝向【{{ selectedDirection }}】，排定如下吉凶气场：</text>
+        <text class="palace-intro">根据您的朝向【{{ selectedDirection }}】，排定如下能量场：</text>
         
         <view class="palace-grid">
           <view 
@@ -91,12 +91,12 @@
       </view>
 
       <view class="analysis-card">
-        <text class="card-title">📖 山水气运批注</text>
+        <text class="card-title">📖 山水能量批注</text>
         <text class="analysis-text">{{ result.directionAnalysis }}</text>
       </view>
 
       <view class="analysis-card" v-if="result.suggestions && result.suggestions.length > 0">
-        <text class="card-title">💡 风水调理调侯策</text>
+        <text class="card-title">💡 空间优化建议</text>
         <view class="suggestion-list">
           <view class="suggestion-item" v-for="(item, index) in result.suggestions" :key="index">
             <text class="suggestion-icon">{{ item.icon }}</text>
@@ -107,12 +107,12 @@
 
       <view class="action-btns">
         <button class="action-btn share" @click="share">分享与保存海报</button>
-        <button class="action-btn reset-btn" @click="reset">重新推演风水</button>
+        <button class="action-btn reset-btn" @click="reset">重新分析空间</button>
       </view>
     </view>
 
     <view class="disclaimer">
-      <text>风水学说仅供布局陈设参考，请理性对待</text>
+      <text>空间美学仅供布局陈设参考，请理性对待</text>
     </view>
   </view>
 </template>
@@ -295,10 +295,10 @@ const share = () => {
   if (!result.value) return
   const query = {
     type: 'fengshui',
-    title: '家宅八卦堪舆法卷',
-    name: '本命信士',
+    title: '空间美学能量分析报告',
+    name: '分析对象',
     score: result.value.rating * 20,
-    analysis: `【家宅坐向】\n${selectedHouseType.value} · ${selectedDirection.value}\n\n【山水气运批注】\n${result.value.directionAnalysis}\n\n【调理开运建议】\n${result.value.suggestions.map(s => s.icon + s.text).join('\n')}`
+    analysis: `【家宅坐向】\n${selectedHouseType.value} · ${selectedDirection.value}\n\n【山水能量批注】\n${result.value.directionAnalysis}\n\n【优化增能建议】\n${result.value.suggestions.map(s => s.icon + s.text).join('\n')}`
   }
   uni.navigateTo({
     url: `/pages/share/index?type=${query.type}&title=${encodeURIComponent(query.title)}&name=${encodeURIComponent(query.name)}&score=${query.score}&analysis=${encodeURIComponent(query.analysis)}`

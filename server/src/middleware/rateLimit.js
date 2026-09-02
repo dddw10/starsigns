@@ -97,7 +97,20 @@ const strictRateLimiter = createRateLimiter({
   message: '操作过于频繁，请1分钟后再试',
 });
 
-// 登录限流
+// 微信 code 换 token 的限流。
+// 这个接口每次冷启动、每次 401 恢复都会被打一次，而且换的是微信发的一次性 code，
+// 猜不出来也刷不动，属于低风险接口。手机上大量用户共用运营商 NAT 出口 IP，
+// 原来「15 分钟 20 次」按 IP 算，一个出口下几十个人同时开小程序就会集体 429，
+// 表现就是登录失败、页面进不去。所以这里放宽成「1 分钟 120 次」，只挡真正的刷接口
+const wxLoginRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 120,
+  keyPrefix: 'wxlogin',
+  message: '登录请求过于频繁，请稍后再试',
+});
+
+// 账号密码登录/注册的限流。
+// 这才是能被撞库爆破的接口，按 IP 收紧到 15 分钟 20 次
 const loginRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 分钟
   max: process.env.NODE_ENV === 'production' ? 20 : 100,
@@ -109,5 +122,6 @@ module.exports = {
   createRateLimiter,
   rateLimiter,
   strictRateLimiter,
+  wxLoginRateLimiter,
   loginRateLimiter,
 };

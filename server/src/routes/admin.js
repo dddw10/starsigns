@@ -12,4 +12,7 @@ router.get('/feedback', adminController.getFeedbackList);
 // 回复反馈
 router.post('/feedback/:id/reply', adminController.replyFeedback);
 
+// 切换审核模式
+router.post('/config/toggle', adminController.toggleAuditMode);
+
 module.exports = router;

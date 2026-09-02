@@ -9,7 +9,7 @@
     {
       "path": "pages/index/index",
       "style": {
-        "navigationBarTitleText": "算命大师",
+        "navigationBarTitleText": "今日星能量",
         "enablePullDownRefresh": true
       }
     },
@@ -22,7 +22,7 @@
     {
       "path": "pages/chat/index",
       "style": {
-        "navigationBarTitleText": "AI命理大师",
+        "navigationBarTitleText": "AI性格分析师",
         "navigationStyle": "custom"
       }
     }
@@ -34,7 +34,7 @@
         {
           "path": "index",
           "style": {
-            "navigationBarTitleText": "八字排盘"
+            "navigationBarTitleText": "生日密码"
           }
         }
       ]
@@ -45,7 +45,7 @@
         {
           "path": "index",
           "style": {
-            "navigationBarTitleText": "星座运势"
+            "navigationBarTitleText": "星座能量"
           }
         }
       ]
@@ -56,7 +56,7 @@
         {
           "path": "index",
           "style": {
-            "navigationBarTitleText": "塔罗占卜"
+            "navigationBarTitleText": "灵感卡牌"
           }
         }
       ]
@@ -78,7 +78,7 @@
         {
           "path": "index",
           "style": {
-            "navigationBarTitleText": "风水分析"
+            "navigationBarTitleText": "空间美学"
           }
         }
       ]
@@ -89,7 +89,7 @@
         {
           "path": "index",
           "style": {
-            "navigationBarTitleText": "面相手相"
+            "navigationBarTitleText": "AI颜值测试"
           }
         }
       ]
@@ -101,17 +101,6 @@
           "path": "index",
           "style": {
             "navigationBarTitleText": "测算结果"
-          }
-        }
-      ]
-    },
-    {
-      "root": "pages/vip",
-      "pages": [
-        {
-          "path": "index",
-          "style": {
-            "navigationBarTitleText": "会员中心"
           }
         }
       ]
@@ -212,7 +201,7 @@
   },
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "算命大师",
+    "navigationBarTitleText": "今日星能量",
     "navigationBarBackgroundColor": "#f8f8f8",
     "backgroundColor": "#f8f8f8"
   },

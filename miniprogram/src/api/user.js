@@ -1,8 +1,9 @@
 import { get, post, put, del } from './request.js'
 
 // 微信登录
+// skipSessionGate：登录请求不能等「登录完成」，否则自己等自己
 export function loginApi(data) {
-  return post('/api/user/login', data)
+  return post('/api/user/login', data, { skipSessionGate: true })
 }
 
 // 获取用户信息
@@ -30,7 +31,7 @@ export function deleteUserHistoryApi(id) {
   return del(`/api/user/history/${id}`)
 }
 
-// 收藏算命结果
+// 收藏分析结果
 export function favoriteResultApi(data) {
   return post('/api/user/favorite', data)
 }
@@ -45,9 +46,9 @@ export function deleteFavoriteApi(id) {
   return del(`/api/user/favorite/${id}`)
 }
 
-// 更新生辰八字
-export function updateBirthInfoApi(data) {
-  return put('/api/user/birth-info', data)
+// 更新生辰生日密码
+export function updateBirthInfoApi(data, options = {}) {
+  return put('/api/user/birth-info', data, options)
 }
 
 // 每日签到
@@ -74,4 +75,32 @@ export function getAdminFeedbackListApi(params) {
 export function replyFeedbackApi(id, data) {
   return post(`/api/admin/feedback/${id}/reply`, data)
 }
+
+// 绑定微信手机号
+export function bindPhoneApi(data) {
+  return post('/api/user/bind-phone', data)
+}
+
+// H5 注册
+export function registerApi(data) {
+  return post('/api/user/register', data, { skipSessionGate: true })
+}
+
+// H5 账号登录
+export function loginAccountApi(data) {
+  return post('/api/user/login-account', data, { skipSessionGate: true })
+}
+
+// 获取系统配置
+export function getSystemConfigApi() {
+  return get('/api/config')
+}
+
+// 管理员：切换审核模式
+export function toggleAuditModeApi(data) {
+  return post('/api/admin/config/toggle', data)
+}
+
+
+
 

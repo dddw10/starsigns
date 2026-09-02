@@ -2,7 +2,7 @@
   <view class="share-card" ref="shareCardRef">
     <view class="card-content">
       <view class="card-header">
-        <text class="app-name">今日运势</text>
+        <text class="app-name">今日能量</text>
         <text class="share-date">{{ date }}</text>
       </view>
 
@@ -15,7 +15,7 @@
       </view>
 
       <view class="card-footer">
-        <text class="footer-text">扫码测测你的运势</text>
+        <text class="footer-text">扫码测测你的能量</text>
       </view>
     </view>
   </view>
