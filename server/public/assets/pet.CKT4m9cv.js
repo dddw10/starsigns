@@ -1,0 +1,1 @@
+import{a7 as t,a8 as e}from"./index-CB_e0AXI.js";function a(){return t("/api/pet/status")}function n(t){return e("/api/pet/feed",{itemType:t})}function r(){return e("/api/pet/interact")}function i(t){return e("/api/pet/rename",{name:t})}function p(){return e("/api/pet/draw")}export{p as d,n as f,a as g,r as i,i as r};
