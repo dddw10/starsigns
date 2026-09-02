@@ -21,10 +21,10 @@
       </view>
     </view>
 
-    <!-- 浮动卡片：生辰八字设置 -->
+    <!-- 浮动卡片：出生信息设置 -->
     <view class="birth-info-card" :class="{ collapsed: isBirthCardCollapsed }">
       <view class="card-header" @click="toggleBirthCard">
-        <text class="card-title">📝 您的生辰配置 (提升算命精度)</text>
+        <text class="card-title">📝 您的生辰配置 (提升分析精度)</text>
         <text class="collapse-icon">{{ isBirthCardCollapsed ? '展开 ➕' : '收起 ➖' }}</text>
       </view>
       <view class="card-body" v-if="!isBirthCardCollapsed">
@@ -145,7 +145,7 @@
 import { ref, reactive, nextTick, onMounted, computed } from 'vue'
 import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
-import { BASE_URL } from '@/api/request'
+import { BASE_URL, recoverSession } from '@/api/request'
 
 const userStore = useUserStore()
 const themeStore = useThemeStore()
@@ -231,7 +231,7 @@ const initWelcome = () => {
   messages.value = [
     {
       role: 'assistant',
-      content: '施主，老夫在此守候多时。凡人一生，皆有定数，亦有变数。请在上方输入你的生辰八字，然后点击告诉我你的疑惑，老夫将为你拨云见日。',
+      content: '施主，老夫在此守候多时。凡人一生，皆有定数，亦有变数。请在上方输入你的出生信息，然后点击告诉我你的疑惑，老夫将为你拨云见日。',
       avatar: '🔮'
     }
   ]
@@ -251,7 +251,7 @@ const switchMode = (mode) => {
     messages.value = [
       {
         role: 'assistant',
-        content: '欢迎来到【三教九流命理圆桌会谈】。\n在这里，东方命理妙空大师、西方占星师塞蕾娜以及心理咨询专家德叔将共同会诊施主的命运，并提供最终的命运综合报告。',
+        content: '欢迎来到【多维性格圆桌会谈】。\n在这里，东方命理妙空大师、西方占星师塞蕾娜以及心理咨询专家德叔将共同会诊施主的命运，并提供最终的命运综合报告。',
         avatar: '🐉'
       }
     ]
@@ -306,6 +306,9 @@ const sendMessage = async () => {
 
   // 1. 如果未登录，强制进行静默登录获取 Token，保证后端 Mongoose 能够正确存库
   if (!userStore.isLoggedIn) {
+    // showLoading 和 showToast 共用同一个浮层：提示必须排在 hideLoading 之后，
+    // 否则提示会被 hideLoading 一起收走，用户什么都看不到
+    let loginToast = null
     uni.showLoading({ title: '大天机推演中，正在准备登录...' })
     try {
       const loginRes = await userStore.login()
@@ -313,10 +316,11 @@ const sendMessage = async () => {
         throw new Error(loginRes.message || '登录失败')
       }
     } catch (e) {
-      uni.showToast({ title: '快捷登录失败，将以游客身份提问', icon: 'none' })
+      loginToast = { title: '快捷登录失败，将以游客身份提问', icon: 'none' }
     } finally {
       uni.hideLoading()
     }
+    if (loginToast) uni.showToast(loginToast)
   }
 
   const userQuery = inputMsg.value.trim()
@@ -349,22 +353,40 @@ const sendMessage = async () => {
     ? `${BASE_URL}/api/fortune/ai-chat` 
     : `${BASE_URL}/api/fortune/council`
 
-  // 获取 Bearer 认证 Token
-  const token = uni.getStorageSync('user_token') || ''
-  const headers = {
-    'content-type': 'application/json'
+  // 令牌每次发请求时现取：401 恢复之后本地已经换成新令牌，重发必须带新的那个
+  const buildHeaders = () => {
+    const headers = {
+      'content-type': 'application/json'
+    }
+    const token = uni.getStorageSync('user_token') || ''
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    return headers
   }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
+
+  // 这两个接口是手写的 uni.request / wx.request，没走 request.js 的统一 401 恢复。
+  // 服务端对「带了令牌但已过期」如实回 401（不再当游客放过去），
+  // 所以这里必须自己换一次令牌再重发，否则用户会在对话里看到「服务器状态码: 401」，以为服务坏了。
+  // 只重试一次；恢复失败时 store 已经弹过「登录已过期」，这里不再叠一层提示
+  let authRetried = false
+  const recoverAndRetry = async (resend) => {
+    if (authRetried) return
+    authRetried = true
+    const recovered = await recoverSession()
+    if (!recovered) return
+    // complete 回调会把 loading 关掉，所以要在恢复成功、准备重发时重新点亮
+    loading.value = true
+    resend()
   }
 
   let isWechat = false
-  // #ifdef MP-WECHAT
+  // #ifdef MP-WEIXIN
   isWechat = true
   // #endif
 
   // 如果选择非流式稳定模式，或者不是微信平台，都走稳定网络路径 (普通 POST 请求)
-  if (!useStream.value || !isWechat) {
+  const sendStable = () => {
     console.log('[AI Chat] Initiating stable non-stream request...')
     uni.request({
       url: requestUrl,
@@ -378,11 +400,15 @@ const sendMessage = async () => {
         gender: gender.value,
         stream: false
       },
-      header: headers,
+      header: buildHeaders(),
       timeout: 60000,
       success: (res) => {
         console.log('[AI Chat] Stable request success:', res.statusCode)
         loading.value = false
+        if (res.statusCode === 401) {
+          recoverAndRetry(sendStable)
+          return
+        }
         if (res.statusCode === 200 && res.data && res.data.code === 0) {
           if (chatMode.value === 'private') {
             const replyContent = res.data.data?.content || ''
@@ -425,196 +451,210 @@ const sendMessage = async () => {
         scrollToBottom()
       }
     })
+  }
+
+  if (!useStream.value || !isWechat) {
+    sendStable()
     return
   }
 
-  // #ifdef MP-WECHAT
+  // #ifdef MP-WEIXIN
   // 流式输出模式 (使用原生微信请求以获得更可靠的 SSE chunked 流接收能力)
-  let activeAgentMsg = null
-  let isFirstChunk = true
-  const decoder = new Utf8Decoder()
-  let leftover = ''
-  let receivedAnyChunk = false
+  const sendStream = () => {
+    // 每次重发都要重置分片状态，否则重试会拼上一次的残包
+    let activeAgentMsg = null
+    let isFirstChunk = true
+    const decoder = new Utf8Decoder()
+    let leftover = ''
+    let receivedAnyChunk = false
 
-  const requestTask = wx.request({
-    url: requestUrl,
-    method: 'POST',
-    responseType: 'arraybuffer', // 强制指定 ArrayBuffer 类型
-    timeout: 60000, // 增加超时时间到 60 秒
-    data: {
-      messages: apiHistory,
-      birthInfo: {
-        solarDate: birthInfo.solarDate,
-        birthTime: birthInfo.birthTime
+    const requestTask = wx.request({
+      url: requestUrl,
+      method: 'POST',
+      responseType: 'arraybuffer', // 强制指定 ArrayBuffer 类型
+      timeout: 60000, // 增加超时时间到 60 秒
+      data: {
+        messages: apiHistory,
+        birthInfo: {
+          solarDate: birthInfo.solarDate,
+          birthTime: birthInfo.birthTime
+        },
+        gender: gender.value,
+        stream: true
       },
-      gender: gender.value,
-      stream: true
-    },
-    enableChunked: true,
-    header: headers,
-    success: (res) => {
-      console.log('Native SSE Stream Request Success, Status Code:', res.statusCode)
-      loading.value = false
-      
-      if (res.statusCode === 200) {
-        // 兜底逻辑：如果 onChunkReceived 没有被触发过
-        if (!receivedAnyChunk) {
-          console.log('[AI Chat Fallback] Chunked mode failed or ignored. Decoding full payload...')
-          let fullText = ''
-          try {
-            const uint8 = new Uint8Array(res.data)
-            fullText = decoder.decode(uint8)
-          } catch (e) {
-            console.error('Failed to decode full response:', e)
-          }
+      enableChunked: true,
+      header: buildHeaders(),
+      success: (res) => {
+        console.log('Native SSE Stream Request Success, Status Code:', res.statusCode)
+        loading.value = false
 
-          if (fullText) {
-            const lines = fullText.split('\n')
-            let compiledContent = ''
-            
-            for (const line of lines) {
-              if (line.trim().startsWith('data: ')) {
-                const dataVal = line.replace('data: ', '').trim()
-                if (dataVal === '[DONE]') continue
-                try {
-                  const parsed = JSON.parse(dataVal)
-                  if (parsed.agent) {
-                    if (parsed.content) {
+        if (res.statusCode === 401 && !receivedAnyChunk) {
+          recoverAndRetry(sendStream)
+          return
+        }
+
+        if (res.statusCode === 200) {
+          // 兜底逻辑：如果 onChunkReceived 没有被触发过
+          if (!receivedAnyChunk) {
+            console.log('[AI Chat Fallback] Chunked mode failed or ignored. Decoding full payload...')
+            let fullText = ''
+            try {
+              const uint8 = new Uint8Array(res.data)
+              fullText = decoder.decode(uint8)
+            } catch (e) {
+              console.error('Failed to decode full response:', e)
+            }
+
+            if (fullText) {
+              const lines = fullText.split('\n')
+              let compiledContent = ''
+
+              for (const line of lines) {
+                if (line.trim().startsWith('data: ')) {
+                  const dataVal = line.replace('data: ', '').trim()
+                  if (dataVal === '[DONE]') continue
+                  try {
+                    const parsed = JSON.parse(dataVal)
+                    if (parsed.agent) {
+                      if (parsed.content) {
+                        compiledContent += parsed.content
+                      }
+                    } else if (parsed.content) {
                       compiledContent += parsed.content
                     }
-                  } else if (parsed.content) {
-                    compiledContent += parsed.content
+                  } catch (e) {
+                    // 忽略截断
                   }
-                } catch (e) {
-                  // 忽略截断
                 }
               }
-            }
 
-            if (compiledContent) {
-              messages.value.push({
-                role: 'assistant',
-                content: compiledContent,
-                avatar: chatMode.value === 'private' ? '🔮' : '🐉'
-              })
-              scrollToBottom()
+              if (compiledContent) {
+                messages.value.push({
+                  role: 'assistant',
+                  content: compiledContent,
+                  avatar: chatMode.value === 'private' ? '🔮' : '🐉'
+                })
+                scrollToBottom()
+              }
             }
           }
+          } else {
+          let errBody = ''
+          try {
+            const uint8 = new Uint8Array(res.data)
+            errBody = decoder.decode(uint8)
+          } catch (e) {
+            errBody = JSON.stringify(res.data)
+          }
+
+          uni.showModal({
+            title: '大师推演错误',
+            content: `服务器状态码: ${res.statusCode}\n详细信息: ${errBody}`,
+            showCancel: false
+          })
         }
-      } else {
-        let errBody = ''
-        try {
-          const uint8 = new Uint8Array(res.data)
-          errBody = decoder.decode(uint8)
-        } catch (e) {
-          errBody = JSON.stringify(res.data)
-        }
-        
+      },
+      fail: (err) => {
+        console.error('Native SSE Stream Request Failed:', err)
+        loading.value = false
         uni.showModal({
-          title: '大师推演错误',
-          content: `服务器状态码: ${res.statusCode}\n详细信息: ${errBody}`,
+          title: '推演天机失败',
+          content: `请检查网络是否畅通或接口是否开启。\n错误原因: ${err.errMsg || JSON.stringify(err)}`,
           showCancel: false
         })
+      },
+      complete: () => {
+        loading.value = false
+        scrollToBottom()
       }
-    },
-    fail: (err) => {
-      console.error('Native SSE Stream Request Failed:', err)
+    })
+
+    // 监听 Chunk 数据并实时解码渲染
+    requestTask.onChunkReceived((res) => {
+      receivedAnyChunk = true
       loading.value = false
-      uni.showModal({
-        title: '推演天机失败',
-        content: `请检查网络是否畅通或接口是否开启。\n错误原因: ${err.errMsg || JSON.stringify(err)}`,
-        showCancel: false
-      })
-    },
-    complete: () => {
-      loading.value = false
-      scrollToBottom()
-    }
-  })
+      const buffer = res.data
+      const uint8Array = new Uint8Array(buffer)
 
-  // 监听 Chunk 数据并实时解码渲染
-  requestTask.onChunkReceived((res) => {
-    receivedAnyChunk = true
-    loading.value = false
-    const buffer = res.data
-    const uint8Array = new Uint8Array(buffer)
-    
-    // 使用纯 JS 的 Utf8Decoder 解码字节流，保障分片边界绝不出现乱码
-    const chunkStr = decoder.decode(uint8Array)
-    if (!chunkStr) return
+      // 使用纯 JS 的 Utf8Decoder 解码字节流，保障分片边界绝不出现乱码
+      const chunkStr = decoder.decode(uint8Array)
+      if (!chunkStr) return
 
-    // 拼接前一次遗留的残包
-    const dataToProcess = leftover + chunkStr
-    leftover = ''
+      // 拼接前一次遗留的残包
+      const dataToProcess = leftover + chunkStr
+      leftover = ''
 
-    // 按行切分 chunk 处理
-    const lines = dataToProcess.split('\n')
-    
-    // 如果 chunk 没有以换行符结束，说明末尾行残缺，暂存到 leftover 待下次拼接
-    if (!chunkStr.endsWith('\n')) {
-      leftover = lines.pop() || ''
-    } else {
-      lines.pop()
-    }
+      // 按行切分 chunk 处理
+      const lines = dataToProcess.split('\n')
 
-    for (const line of lines) {
-      if (line.trim().startsWith('data: ')) {
-        const dataVal = line.replace('data: ', '').trim()
-        if (dataVal === '[DONE]') {
-          activeAgentMsg = null
-          break
-        }
-        try {
-          const parsed = JSON.parse(dataVal)
-          
-          if (parsed.agent) {
-            // --- 多智能体圆桌会谈流模式 ---
-            if (parsed.event === 'start') {
-              activeAgentMsg = {
-                role: 'assistant',
-                agentName: parsed.agent,
-                content: '',
-                avatar: getAgentAvatar(parsed.agent)
-              }
-              messages.value.push(activeAgentMsg)
-            } else if (parsed.event === 'end') {
-              activeAgentMsg = null
-            } else if (parsed.content) {
-              if (activeAgentMsg) {
-                activeAgentMsg.content += parsed.content
-              } else {
+      // 如果 chunk 没有以换行符结束，说明末尾行残缺，暂存到 leftover 待下次拼接
+      if (!chunkStr.endsWith('\n')) {
+        leftover = lines.pop() || ''
+      } else {
+        lines.pop()
+      }
+
+      for (const line of lines) {
+        if (line.trim().startsWith('data: ')) {
+          const dataVal = line.replace('data: ', '').trim()
+          if (dataVal === '[DONE]') {
+            activeAgentMsg = null
+            break
+          }
+          try {
+            const parsed = JSON.parse(dataVal)
+
+            if (parsed.agent) {
+              // --- 多智能体圆桌会谈流模式 ---
+              if (parsed.event === 'start') {
                 activeAgentMsg = {
                   role: 'assistant',
                   agentName: parsed.agent,
-                  content: parsed.content,
+                  content: '',
                   avatar: getAgentAvatar(parsed.agent)
                 }
                 messages.value.push(activeAgentMsg)
+              } else if (parsed.event === 'end') {
+                activeAgentMsg = null
+              } else if (parsed.content) {
+                if (activeAgentMsg) {
+                  activeAgentMsg.content += parsed.content
+                } else {
+                  activeAgentMsg = {
+                    role: 'assistant',
+                    agentName: parsed.agent,
+                    content: parsed.content,
+                    avatar: getAgentAvatar(parsed.agent)
+                  }
+                  messages.value.push(activeAgentMsg)
+                }
+              }
+            } else if (parsed.content) {
+              // --- 1对1私聊模式 ---
+              if (isFirstChunk) {
+                messages.value.push({
+                  role: 'assistant',
+                  content: parsed.content,
+                  avatar: '🔮'
+                })
+                isFirstChunk = false
+              } else {
+                const lastMsg = messages.value[messages.value.length - 1]
+                if (lastMsg && lastMsg.role === 'assistant') {
+                  lastMsg.content += parsed.content
+                }
               }
             }
-          } else if (parsed.content) {
-            // --- 1对1私聊模式 ---
-            if (isFirstChunk) {
-              messages.value.push({
-                role: 'assistant',
-                content: parsed.content,
-                avatar: '🔮'
-              })
-              isFirstChunk = false
-            } else {
-              const lastMsg = messages.value[messages.value.length - 1]
-              if (lastMsg && lastMsg.role === 'assistant') {
-                lastMsg.content += parsed.content
-              }
-            }
+            scrollToBottom()
+          } catch (e) {
+            // JSON 截断忽略，等待下个 chunk 拼全
           }
-          scrollToBottom()
-        } catch (e) {
-          // JSON 截断忽略，等待下个 chunk 拼全
         }
       }
-    }
-  })
+    })
+  }
+
+  sendStream()
   // #endif
 }
 

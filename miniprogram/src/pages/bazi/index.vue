@@ -3,8 +3,8 @@
     
     <!-- Tab 切换 -->
     <view class="tab-container" v-if="!result && !loading">
-      <view class="tab-item" :class="{ active: activeTab === 'single' }" @click="switchTab('single')">单人八字排盘</view>
-      <view class="tab-item" :class="{ active: activeTab === 'match' }" @click="switchTab('match')">双人八字配对</view>
+      <view class="tab-item" :class="{ active: activeTab === 'single' }" @click="switchTab('single')">单人生日解码</view>
+      <view class="tab-item" :class="{ active: activeTab === 'match' }" @click="switchTab('match')">双人缘分配对</view>
     </view>
 
     <!-- 输入表单 -->
@@ -23,7 +23,7 @@
 
       <!-- 情况B：双人常用配对 -->
       <view class="memory-section" v-if="activeTab === 'match' && commonBaziMatchList && commonBaziMatchList.length > 0">
-        <text class="memory-label">💡 常用生辰合婚一键填入：</text>
+        <text class="memory-label">💡 常用生日配对一键填入：</text>
         <view class="memory-list">
           <view class="memory-chip" v-for="(item, index) in commonBaziMatchList" :key="index" @click="fillMatchForm(item)">
             <text class="chip-text">{{ item.name1 }} ❤ {{ item.name2 }}</text>
@@ -35,9 +35,18 @@
       <!-- 模式1：单人表单 -->
       <view v-if="activeTab === 'single'">
         <text class="section-title">请输入您的生辰信息</text>
-        
+
+        <!-- 历法放在日期上面：下面那个日期选择器要按这里选的历法解释 -->
         <view class="form-item">
-          <text class="label">出生日期</text>
+          <text class="label">历法</text>
+          <view class="gender-group">
+            <view class="gender-btn" :class="{ active: calendar === 'solar' }" @click="calendar = 'solar'">公历</view>
+            <view class="gender-btn" :class="{ active: calendar === 'lunar' }" @click="calendar = 'lunar'">农历</view>
+          </view>
+        </view>
+
+        <view class="form-item">
+          <text class="label">{{ calendar === 'lunar' ? '出生日期（农历）' : '出生日期（公历）' }}</text>
           <picker mode="date" :value="birthDate" @change="onDateChange">
             <view class="picker-value">{{ birthDate || '请选择日期' }}</view>
           </picker>
@@ -55,14 +64,6 @@
           <view class="gender-group">
             <view class="gender-btn" :class="{ active: gender === 'male' }" @click="gender = 'male'">乾造 (男)</view>
             <view class="gender-btn" :class="{ active: gender === 'female' }" @click="gender = 'female'">坤造 (女)</view>
-          </view>
-        </view>
-
-        <view class="form-item">
-          <text class="label">历法</text>
-          <view class="gender-group">
-            <view class="gender-btn" :class="{ active: calendar === 'solar' }" @click="calendar = 'solar'">公历</view>
-            <view class="gender-btn" :class="{ active: calendar === 'lunar' }" @click="calendar = 'lunar'">农历</view>
           </view>
         </view>
       </view>
@@ -129,7 +130,7 @@
         <view class="form-item">
           <text class="label">测算目的</text>
           <view class="gender-group">
-            <view class="gender-btn" :class="{ active: relationType === 'love' }" @click="relationType = 'love'">💖 姻缘合婚</view>
+            <view class="gender-btn" :class="{ active: relationType === 'love' }" @click="relationType = 'love'">💖 缘分配对</view>
             <view class="gender-btn" :class="{ active: relationType === 'business' }" @click="relationType = 'business'">💰 合伙求财</view>
           </view>
         </view>
@@ -144,14 +145,24 @@
         <text class="preview-title-text">生辰干支即时排演</text>
       </view>
       <view class="preview-body-content" v-if="activeTab === 'single'">
-        <view class="preview-row">
-          <text class="preview-label-tag">本命生肖:</text>
-          <text class="preview-val-tag shengxiao">{{ localBaziPreview.shengXiao }}肖</text>
+        <!-- 农历日期不存在（农历月只有 29/30 天）时，这里给出可操作的提示 -->
+        <view class="preview-row" v-if="localBaziPreview.error">
+          <text class="preview-val-tag preview-error">⚠️ {{ localBaziPreview.error }}</text>
         </view>
-        <view class="preview-row" style="margin-top: 10rpx;">
-          <text class="preview-label-tag">排盘干支:</text>
-          <text class="preview-val-tag ganzhi">{{ localBaziPreview.gangan }}</text>
-        </view>
+        <template v-else>
+          <view class="preview-row" v-if="localBaziPreview.solarDateText">
+            <text class="preview-label-tag">对应公历:</text>
+            <text class="preview-val-tag">{{ localBaziPreview.solarDateText }}</text>
+          </view>
+          <view class="preview-row" :style="localBaziPreview.solarDateText ? 'margin-top: 10rpx;' : ''">
+            <text class="preview-label-tag">本命生肖:</text>
+            <text class="preview-val-tag shengxiao">{{ localBaziPreview.shengXiao }}肖</text>
+          </view>
+          <view class="preview-row" style="margin-top: 10rpx;">
+            <text class="preview-label-tag">排盘干支:</text>
+            <text class="preview-val-tag ganzhi">{{ localBaziPreview.gangan }}</text>
+          </view>
+        </template>
       </view>
       <view class="preview-body-content" v-else>
         <view class="preview-row">
@@ -167,20 +178,20 @@
 
     <!-- 提交按钮 -->
     <button class="submit-btn" @click="calculate" :disabled="!canSubmit" v-if="!result && !loading">
-      {{ activeTab === 'single' ? '开始排盘' : '开始双人八字合婚' }}
+      {{ activeTab === 'single' ? '开始排盘' : '开始双人缘分配对' }}
     </button>
 
     <!-- 计算中等待状态 -->
     <view class="calculating-state" v-if="loading">
       <view class="bagua-icon"></view>
       <text class="calculating-text">
-        {{ activeTab === 'single' ? '正在排定乾坤命格，窥算八字局势...' : '正在排演双方五行盈缺，推导命理生克谐振...' }}
+        {{ activeTab === 'single' ? '正在排定乾坤命格，解析性格密码...' : '正在排演双方五行盈缺，推导性格互动关系...' }}
       </text>
     </view>
 
     <!-- 测算结果：卷轴展开动效 -->
     <view class="result-section" v-if="result && !loading">
-      <text class="section-title">📜 {{ result.isMatch ? '双人生辰合婚法卷' : '个人八字排盘吉凶' }} 📜</text>
+      <text class="section-title">📜 {{ result.isMatch ? '双人生日配对报告' : '个人生日密码解读' }} 📜</text>
       
       <view class="scroll-wrapper">
         <view class="scroll-handle left"></view>
@@ -212,7 +223,7 @@
               <view class="result-divider"></view>
 
               <view class="analysis-section">
-                <text class="scroll-section-title">📖 命理总批解读</text>
+                <text class="scroll-section-title">📖 性格全面解读</text>
                 <text class="interpretation-text">{{ result.analysis }}</text>
               </view>
 
@@ -225,7 +236,7 @@
             <!-- 情况B：双人合婚结果 -->
             <view v-else>
               <view class="match-score-card">
-                <text class="match-score-label">合婚契合度评分</text>
+                <text class="match-score-label">配对契合度评分</text>
                 <text class="match-score-num">{{ result.score }}分</text>
                 <view class="match-stars">
                   <text v-for="i in 5" :key="i" class="star">{{ i <= result.rating ? '★' : '☆' }}</text>
@@ -252,13 +263,13 @@
               <view class="result-divider"></view>
 
               <view class="analysis-section">
-                <text class="scroll-section-title">🔮 乾坤天命合婚总批</text>
+                <text class="scroll-section-title">🔮 乾坤配对分析总评</text>
                 <text class="interpretation-text" style="white-space: pre-wrap; text-align: justify; word-break: break-all;">{{ result.analysis }}</text>
               </view>
 
               <view class="action-btns">
                 <button class="action-btn share" @click="share">分享结果</button>
-                <button class="action-btn reset-btn" @click="reset">重新测算合婚</button>
+                <button class="action-btn reset-btn" @click="reset">重新进行配对</button>
               </view>
             </view>
 
@@ -269,7 +280,7 @@
     </view>
 
     <view class="disclaimer">
-      <text>本结果基于数理喜用神与日干命理剖析，仅供娱乐参考</text>
+      <text>本结果基于数理喜用神与日干性格剖析，仅供娱乐参考</text>
     </view>
   </view>
 </template>
@@ -279,7 +290,8 @@ import { ref, computed, onMounted } from 'vue'
 import { calcBaziApi, baziMatchApi } from '@/api/fortune'
 import { updateBirthInfoApi } from '@/api/user'
 import { useUserStore } from '@/store/user'
-import { GAN_WUXING, calculateBazi } from './utils/bazi-calc'
+import { GAN_WUXING } from './utils/bazi-calc'
+import { calcBaziChart, formatBaziChart } from './utils/bazi-chart'
 
 const userStore = useUserStore()
 const activeTab = ref('single')
@@ -323,47 +335,30 @@ const timeSlots = [
   { label: '亥时 (21:00-23:00)', value: '亥时' }
 ]
 
+// 即时排演：与服务端同库同版本，预览的四柱就是提交后会拿到的四柱
 const localBaziPreview = computed(() => {
   if (activeTab.value === 'single') {
     if (!birthDate.value || !selectedTime.value) return null
-    try {
-      const [year, month, day] = birthDate.value.split('-').map(Number)
-      const slotHours = {
-        '子时': 0, '丑时': 1, '寅时': 3, '卯时': 5, '辰时': 7, '巳时': 9,
-        '午时': 11, '未时': 13, '申时': 15, '酉时': 17, '戌时': 19, '亥时': 21
-      }
-      const hour = slotHours[selectedTime.value.value] || 0
-      const localResult = calculateBazi(year, month, day, hour)
-      return {
-        gangan: `${localResult.year.gan}${localResult.year.zhi}年 ${localResult.month.gan}${localResult.month.zhi}月 ${localResult.day.gan}${localResult.day.zhi}日 ${localResult.hour.gan}${localResult.hour.zhi}时`,
-        shengXiao: localResult.shengXiao
-      }
-    } catch (e) {
-      return null
+    const chart = calcBaziChart(birthDate.value, selectedTime.value.value, calendar.value)
+    if (!chart) return null
+    // 农历日期不存在：把原因透出去，别静默藏掉预览卡片
+    if (chart.error) return { error: chart.error }
+    return {
+      gangan: formatBaziChart(chart),
+      shengXiao: chart.shengXiao,
+      // 农历录入时把折算出的公历显示出来，让用户能核对
+      solarDateText: calendar.value === 'lunar' ? chart.solarDate : ''
     }
-  } else {
-    if (!birthDate1.value || !selectedTime1.value || !birthDate2.value || !selectedTime2.value) return null
-    try {
-      const slotHours = {
-        '子时': 0, '丑时': 1, '寅时': 3, '卯时': 5, '辰时': 7, '巳时': 9,
-        '午时': 11, '未时': 13, '申时': 15, '酉时': 17, '戌时': 19, '亥时': 21
-      }
-      
-      const [y1, m1, d1] = birthDate1.value.split('-').map(Number)
-      const h1 = slotHours[selectedTime1.value.value] || 0
-      const b1 = calculateBazi(y1, m1, d1, h1)
+  }
 
-      const [y2, m2, d2] = birthDate2.value.split('-').map(Number)
-      const h2 = slotHours[selectedTime2.value.value] || 0
-      const b2 = calculateBazi(y2, m2, d2, h2)
-
-      return {
-        gangan1: `${b1.year.gan}${b1.year.zhi}年 ${b1.month.gan}${b1.month.zhi}月 ${b1.day.gan}${b1.day.zhi}日 ${b1.hour.gan}${b1.hour.zhi}时`,
-        gangan2: `${b2.year.gan}${b2.year.zhi}年 ${b2.month.gan}${b2.month.zhi}月 ${b2.day.gan}${b2.day.zhi}日 ${b2.hour.gan}${b2.hour.zhi}时`
-      }
-    } catch (e) {
-      return null
-    }
+  // 双人合婚没有历法选择，两边都按公历
+  if (!birthDate1.value || !selectedTime1.value || !birthDate2.value || !selectedTime2.value) return null
+  const chart1 = calcBaziChart(birthDate1.value, selectedTime1.value.value)
+  const chart2 = calcBaziChart(birthDate2.value, selectedTime2.value.value)
+  if (!chart1 || !chart2) return null
+  return {
+    gangan1: formatBaziChart(chart1),
+    gangan2: formatBaziChart(chart2)
   }
 })
 
@@ -430,7 +425,7 @@ const fillMatchForm = (item) => {
   gender2.value = item.gender2 || 'female'
   
   relationType.value = item.relationType || 'love'
-  uni.showToast({ title: '已回填合婚数据', icon: 'none' })
+  uni.showToast({ title: '已回填配对数据', icon: 'none' })
 }
 
 const deleteMatchMemory = (index) => {
@@ -442,6 +437,8 @@ const deleteMatchMemory = (index) => {
 const canSubmit = computed(() => {
   if (loading.value) return false
   if (activeTab.value === 'single') {
+    // 农历日期不存在时不让提交：服务端也会拒，先在本地挡住少跑一趟
+    if (localBaziPreview.value?.error) return false
     return birthDate.value && selectedTime.value
   } else {
     return name1.value && name1.value.trim() && birthDate1.value && selectedTime1.value &&
@@ -478,7 +475,9 @@ const calculate = async () => {
       const res = await calcBaziApi({
         solarDate: birthDate.value,
         birthTime: selectedTime.value.value,
-        gender: gender.value
+        gender: gender.value,
+        // 历法必须带上：选了农历而不告诉服务端，日期会被当成公历直接排盘
+        calendar: calendar.value
       })
       
       if (res.code !== 0) {
@@ -552,7 +551,7 @@ const calculate = async () => {
       })
 
       if (res.code !== 0) {
-        throw new Error(res.message || '合婚测算失败')
+        throw new Error(res.message || '配对分析失败')
       }
 
       const currentInput = {
@@ -598,7 +597,7 @@ const calculate = async () => {
         relationType: data.relationType,
         score: data.score || 75,
         rating: data.rating || 3,
-        analysis: data.analysis || '合婚批注完成'
+        analysis: data.analysis || '分析完成'
       }
     }
 
@@ -614,7 +613,7 @@ const share = () => {
   if (!result.value) return
   const query = {
     type: activeTab.value === 'single' ? 'bazi' : 'baziMatch',
-    title: activeTab.value === 'single' ? '生辰八字命盘' : '生辰合婚法卷',
+    title: activeTab.value === 'single' ? '生日密码档案' : '双人生日配对报告',
     name: activeTab.value === 'single' ? '本命信士' : `${result.value.name1} 与 ${result.value.name2}`,
     score: result.value.score || (activeTab.value === 'single' ? 88 : 75),
     analysis: result.value.analysis || ''
@@ -629,25 +628,32 @@ const save = async () => {
     uni.showToast({ title: '请选择出生日期与时辰', icon: 'none' })
     return
   }
+
+  // showLoading 和 showToast 共用同一个原生浮层：toast 必须排在 hideLoading 之后，
+  // 否则会被 finally 里的 hideLoading 一起抹掉，用户什么提示都看不到
+  let toast = ''
+  let ok = false
   uni.showLoading({ title: '保存中...' })
   try {
     const res = await updateBirthInfoApi({
       solarDate: birthDate.value,
-      birthTime: selectedTime.value.value
+      birthTime: selectedTime.value.value,
+      // 历法要一起存，否则农历日期会被当成公历写进个人生辰
+      calendar: calendar.value
     })
-    if (res.code === 0) {
-      uni.showToast({ title: '已保存至个人生辰', icon: 'success' })
-      if (userStore.isLoggedIn) {
-        await userStore.fetchUserInfo()
-      }
-    } else {
-      uni.showToast({ title: res.message || '保存失败', icon: 'none' })
+    ok = res.code === 0
+    toast = ok ? '已保存至个人生辰' : (res.message || '保存失败')
+    if (ok && userStore.isLoggedIn) {
+      await userStore.fetchUserInfo()
     }
   } catch (err) {
-    uni.showToast({ title: err.message || '保存失败', icon: 'none' })
+    // ok 也要跟着回落，否则错误文案会配上 success 的 ✓ 图标
+    ok = false
+    toast = err.message || '保存失败'
   } finally {
     uni.hideLoading()
   }
+  uni.showToast({ title: toast, icon: ok ? 'success' : 'none' })
 }
 
 const reset = () => {
@@ -786,6 +792,16 @@ const switchTab = (tab) => {
 
 .theme-chinese .preview-val-tag.ganzhi {
   color: #e5c158;
+}
+
+.preview-val-tag.preview-error {
+  color: #e74c3c;
+  font-weight: normal;
+  line-height: 1.5;
+}
+
+.theme-chinese .preview-val-tag.preview-error {
+  color: #ff8a7a;
 }
 
 

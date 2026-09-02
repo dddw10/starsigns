@@ -2,14 +2,14 @@
   <view class="page-container" :class="themeClass">
     <view class="header">
       <text class="title">隐私政策</text>
-      <text class="update-time">更新时间：2024年1月1日</text>
+      <text class="update-time">更新时间：2026年6月23日</text>
     </view>
     
     <view class="content-section">
       <view class="section">
         <text class="section-title">引言</text>
         <text class="section-content">
-          欢迎使用"算命小程序"（以下简称"本小程序"）。我们非常重视用户的隐私保护。本隐私政策旨在向您说明我们如何收集、使用、存储和保护您的个人信息。
+          欢迎使用"今日星能量"（以下简称"本小程序"）。我们非常重视用户的隐私保护。本隐私政策旨在向您说明我们如何收集、使用、存储和保护您的个人信息。
         </text>
       </view>
       
@@ -27,7 +27,7 @@
         <text class="section-title">二、我们如何使用信息</text>
         <text class="section-content">我们收集的信息将用于：</text>
         <text class="section-content">1. 提供、维护和改进本小程序的服务</text>
-        <text class="section-content">2. 为您提供个性化的命理分析服务</text>
+        <text class="section-content">2. 为您提供个性化的性格分析服务</text>
         <text class="section-content">3. 处理您的订单和支付</text>
         <text class="section-content">4. 发送服务通知和推送消息（经您授权）</text>
         <text class="section-content">5. 预防和处理欺诈、安全问题</text>

@@ -20,8 +20,38 @@ export function createApp() {
           return 'theme-chinese'
         }
       }
+    },
+    // 开启全局“发送给朋友”分享，默认分享当前页面及带有的参数
+    onShareAppMessage() {
+      let path = '/' + (this.$scope?.route || '')
+      if (this.$scope?.options) {
+        const queryStr = Object.keys(this.$scope.options)
+          .map(key => `${key}=${encodeURIComponent(this.$scope.options[key])}`)
+          .join('&')
+        if (queryStr) {
+          path += '?' + queryStr
+        }
+      }
+      return {
+        title: '✨ 今日星能量 ✨ 开启您的每日性格分析与灵感密码',
+        path: path
+      }
+    },
+    // 开启全局“分享到朋友圈”
+    onShareTimeline() {
+      let query = ''
+      if (this.$scope?.options) {
+        query = Object.keys(this.$scope.options)
+          .map(key => `${key}=${encodeURIComponent(this.$scope.options[key])}`)
+          .join('&')
+      }
+      return {
+        title: '✨ 今日星能量 ✨ 开启您的每日性格分析与灵感密码',
+        query: query
+      }
     }
   })
+
 
   return {
     app,

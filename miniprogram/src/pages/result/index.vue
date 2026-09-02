@@ -22,7 +22,7 @@
 
         <!-- 1. 八字排盘专属视图 -->
         <view class="bazi-result-section" v-if="result.type === 'bazi'">
-          <text class="section-title">乾坤八字命盘</text>
+          <text class="section-title">生日密码档案</text>
           <view class="bazi-grid">
             <view class="bazi-item" v-for="(item, index) in result.baziGrid" :key="index">
               <text class="bazi-label">{{ item.label }}</text>
@@ -44,7 +44,7 @@
           </view>
         </view>
 
-        <!-- 2. 塔罗占卜专属视图 -->
+        <!-- 2. 灵感卡牌专属视图 -->
         <view class="tarot-result-section" v-if="result.type === 'tarot'">
           <text class="section-title">选定塔罗牌阵：{{ result.spreadType }}</text>
           <view class="tarot-card-list">
@@ -148,11 +148,20 @@
 
         <!-- 风水专用的额外建议 -->
         <view class="advice-section" v-if="result.type === 'fengshui' && result.suggestions && result.suggestions.length > 0">
-          <text class="advice-title">风水调理建议</text>
+          <text class="advice-title">空间优化建议</text>
           <view class="suggestion-list">
             <text class="suggestion-item" v-for="(sug, idx) in result.suggestions" :key="idx">📍 {{ sug }}</text>
           </view>
         </view>
+      </view>
+    </view>
+
+    <view class="empty-state" v-else-if="loadError">
+      <text class="empty-icon">⚠️</text>
+      <text class="empty-text">这条记录没能加载出来</text>
+      <text class="empty-hint">{{ loadError }}</text>
+      <view class="retry-btn" @click="retry">
+        <text class="retry-btn-text">重新加载</text>
       </view>
     </view>
 
@@ -163,7 +172,14 @@
     </view>
 
     <view class="action-section" v-if="result">
-      <button class="action-btn primary" @click="share">分享给好友</button>
+      <!-- 微信端必须用 open-type="share" 才能真的唤起转发面板；
+           以前这里是普通按钮，只弹一句「分享链接已复制」，其实什么都没发生 -->
+      <!-- #ifdef MP-WEIXIN -->
+      <button class="action-btn primary" open-type="share" @click="recordShare">分享给好友</button>
+      <!-- #endif -->
+      <!-- #ifndef MP-WEIXIN -->
+      <button class="action-btn primary" @click="copyShareLink">复制分享链接</button>
+      <!-- #endif -->
       <button class="action-btn secondary" @click="saveImage">保存海报</button>
     </view>
 
@@ -191,25 +207,29 @@
 
 <script setup>
 import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import { getFortuneRecordApi, shareFortuneRecordApi } from '@/api/fortune'
 
 const loading = ref(false)
 const recordId = ref('')
 const result = ref(null)
+// 加载失败要和「记录不存在」分开：网络断了却说「未能获取到测算结果」，
+// 用户以为这条记录被删了
+const loadError = ref('')
 
 const typeNameMap = {
-  bazi: '生辰八字',
-  tarot: '塔罗占卜',
+  bazi: '生日密码',
+  tarot: '灵感卡牌',
   name: '姓名测算',
-  fengshui: '风水分析',
-  daily: '每日运势',
-  face: '面相分析',
+  fengshui: '空间美学分析',
+  daily: '每日灵感',
+  face: 'AI颜值分析',
   palm: '手相分析'
 }
 
 const fetchRecord = async (id) => {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await getFortuneRecordApi(id)
     const data = res.data
@@ -255,7 +275,7 @@ const fetchRecord = async (id) => {
       parsedResult.inputInfo = bazi.input || {}
     } else if (type === 'tarot') {
       const tarot = data.tarot || {}
-      parsedResult.spreadType = tarot.spreadType || '单牌占卜'
+      parsedResult.spreadType = tarot.spreadType || '单牌抽取'
       parsedResult.cards = (tarot.cards || []).map(c => ({
         name: c.name,
         position: c.position,
@@ -282,7 +302,7 @@ const fetchRecord = async (id) => {
       parsedResult.suggestions = fengshui.suggestions || []
     } else if (type === 'face' || type === 'palm') {
       const facePalm = data.facePalm || {}
-      parsedResult.featureTitle = facePalm.featureTitle || (type === 'face' ? '面相特征' : '手相特征')
+      parsedResult.featureTitle = facePalm.featureTitle || (type === 'face' ? '面部特征' : '手相特征')
       parsedResult.features = facePalm.features || ''
       parsedResult.fortune = facePalm.fortune || ''
       parsedResult.personality = facePalm.personality || ''
@@ -304,10 +324,14 @@ const fetchRecord = async (id) => {
 
     result.value = parsedResult
   } catch (err) {
-    uni.showToast({ title: err.message || '加载详情失败', icon: 'none' })
+    loadError.value = err?.message || '网络不太顺畅，请稍后再试'
   } finally {
     loading.value = false
   }
+}
+
+const retry = () => {
+  if (recordId.value) fetchRecord(recordId.value)
 }
 
 onLoad((options) => {
@@ -319,21 +343,47 @@ onLoad((options) => {
   }
 })
 
-const share = async () => {
-  if (result.value?.id) {
-    try {
-      await shareFortuneRecordApi(result.value.id)
-    } catch (e) {}
-  }
-  uni.showToast({ title: '分享链接已复制，去微信发送吧！', icon: 'success' })
+// 只用来记一次分享次数，成不成都不影响转发本身，所以吞掉异常
+const recordShare = () => {
+  if (!result.value?.id) return
+  shareFortuneRecordApi(result.value.id).catch(() => {})
 }
 
+// 微信原生转发：必须注册这个钩子，配合模板里 open-type="share" 的按钮才能唤起转发面板
+onShareAppMessage(() => {
+  const title = result.value?.typeName ? `我的${result.value.typeName}报告出炉了，快来看看你的星能密码！` : '快来测测你的星能密码！'
+  return {
+    title,
+    path: '/pages/index/index'
+  }
+})
+
+// H5 没有转发面板，复制当前页真实地址
+const copyShareLink = () => {
+  recordShare()
+  // #ifdef H5
+  const url = window.location.href
+  uni.setClipboardData({
+    data: url,
+    success: () => uni.showToast({ title: '链接已复制，去微信发给好友吧', icon: 'none' }),
+    fail: () => uni.showModal({ title: '分享提示', content: `请复制浏览器地址栏的网址分享给好友：\n${url}`, showCancel: false })
+  })
+  // #endif
+}
+
+// 海报由 share 页的 canvas 真实绘制并保存；
+// 这里以前是 setTimeout 1.2 秒后直接说「海报已保存至相册」，相册里其实什么都没有
 const saveImage = () => {
-  uni.showLoading({ title: '正在合成精美海报...' })
-  setTimeout(() => {
-    uni.hideLoading()
-    uni.showToast({ title: '海报已保存至相册', icon: 'success' })
-  }, 1200)
+  if (!result.value) return
+  const analysis = (result.value.analysis || '').slice(0, 200)
+  const query = [
+    `type=${encodeURIComponent(result.value.type || 'bazi')}`,
+    `title=${encodeURIComponent(result.value.typeName || '测算报告')}`,
+    `name=${encodeURIComponent(result.value.name || '我的报告')}`,
+    `score=${encodeURIComponent(result.value.score || (result.value.rating || 4) * 20)}`,
+    `analysis=${encodeURIComponent(analysis)}`
+  ].join('&')
+  uni.navigateTo({ url: `/pages/share/index?${query}` })
 }
 
 const navigateTo = (url) => {
@@ -808,5 +858,25 @@ const navigateTo = (url) => {
   margin-top: 16rpx;
   display: block;
   text-decoration: underline;
+}
+
+.empty-hint {
+  font-size: 26rpx;
+  color: var(--text-secondary, #999);
+  margin-top: 12rpx;
+  display: block;
+}
+
+.retry-btn {
+  display: inline-block;
+  margin-top: 32rpx;
+  padding: 16rpx 48rpx;
+  border-radius: 40rpx;
+  background: var(--primary-color, #c41e3a);
+}
+
+.retry-btn-text {
+  font-size: 28rpx;
+  color: #fff;
 }
 </style>

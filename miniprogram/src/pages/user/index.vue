@@ -6,24 +6,29 @@
 
     <!-- 用户头部 -->
     <view class="user-header">
-      <view class="avatar-section">
+      <view class="avatar-section" @click="openProfileModal">
         <image class="avatar" :src="userInfo.avatar || '/static/default-avatar.png'" mode="aspectFill"></image>
         <view class="user-info">
           <text class="nickname">{{ userInfo.nickname || '未登录' }}</text>
           <view class="badge-row">
-            <text class="vip-badge" v-if="userInfo.vipLevel">VIP {{ userInfo.vipLevel }}</text>
             <text class="xian-badge" v-if="isLoggedIn">{{ xianTitle }}</text>
+            <text class="edit-profile-tip" v-if="isLoggedIn">修改资料 ✏️</text>
           </view>
         </view>
       </view>
+      <!-- #ifdef MP-WEIXIN -->
       <button class="login-btn" v-if="!isLoggedIn" @click="login">微信登录</button>
+      <!-- #endif -->
+      <!-- #ifndef MP-WEIXIN -->
+      <button class="login-btn" v-if="!isLoggedIn" @click="login">账号登录</button>
+      <!-- #endif -->
     </view>
 
     <!-- 运势守护神兽卡片 (登录后展示) -->
     <view class="guardian-card" v-if="isLoggedIn && petData">
       <view class="guardian-header-wrap">
         <view class="title-wrap">
-          <text class="guardian-title">☯️ 气运守护神兽</text>
+          <text class="guardian-title">☯️ 星能守护神兽</text>
           <text class="guardian-level">Lv.{{ petData.level }}{{ petData.level >= 30 ? '' : '/30' }} ({{ getStageName(petData.level) }})</text>
         </view>
         <view class="rename-btn" @click="startRename">
@@ -94,10 +99,6 @@
         <text class="stat-value">{{ userInfo.totalUsage || 0 }}</text>
         <text class="stat-label">总测算数</text>
       </view>
-      <view class="stat-item">
-        <text class="stat-value">{{ userInfo.fortuneQuota || 0 }}</text>
-        <text class="stat-label">剩余次数</text>
-      </view>
       <view class="stat-item" @click="navigateTo('/pages/history/index')">
         <text class="stat-value">{{ historyCount }}</text>
         <text class="stat-label">历史底簿</text>
@@ -111,14 +112,9 @@
         <text class="menu-name">历史记录底簿</text>
         <text class="menu-arrow">›</text>
       </view>
-      <view class="menu-item" @click="navigateTo('/pages/vip/index')">
-        <text class="menu-icon">👑</text>
-        <text class="menu-name">会员中心</text>
-        <text class="menu-arrow">›</text>
-      </view>
       <view class="menu-item" @click="navigateTo('/pages/push-settings/index')">
         <text class="menu-icon">🔔</text>
-        <text class="menu-name">每日气运推送设置</text>
+        <text class="menu-name">每日能量推送设置</text>
         <text class="menu-arrow">›</text>
       </view>
       <view class="menu-item" @click="toggleTheme">
@@ -140,9 +136,31 @@
         <text class="menu-name">意见反馈</text>
         <text class="menu-arrow">›</text>
       </view>
-      <view class="menu-item admin-menu-item" v-if="userInfo.memberLevel >= 2" @click="showAdminPanel">
+      <!-- 简洁模式：只有管理员可见。整行不挂 @click，避免点到行上误触开关 -->
+      <view class="menu-item admin-menu-item audit-switch-item" v-if="userInfo.isAdmin">
+        <text class="menu-icon">🧹</text>
+        <view class="menu-text-col">
+          <text class="menu-name">简洁模式</text>
+          <text class="menu-desc">开启后首页只保留星座能量与空间美学</text>
+        </view>
+        <switch
+          :checked="auditSwitchValue"
+          :disabled="auditSwitching"
+          color="#e5c158"
+          @change="toggleAuditMode"
+        />
+      </view>
+      <view class="menu-item" v-if="userInfo.isAdmin" @click="showAdminPanel">
         <text class="menu-icon">🛡️</text>
         <text class="menu-name">管理端：意见反馈处理</text>
+        <text class="menu-arrow">›</text>
+      </view>
+    </view>
+
+    <view class="menu-section" v-if="isLoggedIn">
+      <view class="menu-item logout-item" @click="handleLogout">
+        <text class="menu-icon">🚪</text>
+        <text class="menu-name">退出登录并清除本地数据</text>
         <text class="menu-arrow">›</text>
       </view>
     </view>
@@ -300,7 +318,6 @@
                     <image class="admin-user-avatar" :src="item.userId?.avatar || '/static/default-avatar.png'" mode="aspectFill"></image>
                     <view class="admin-user-name-col">
                       <text class="admin-user-name">{{ item.userId?.nickname || '匿名用户' }}</text>
-                      <text class="admin-user-vip" v-if="item.userId?.memberLevel">VIP {{ item.userId.memberLevel }}</text>
                     </view>
                   </view>
                   <text class="history-type-tag" :class="item.type">{{ getFeedbackTypeName(item.type) }}</text>
@@ -359,6 +376,94 @@
         </view>
       </view>
     </view>
+
+    <!-- 个人资料编辑弹窗 -->
+    <view class="profile-modal-mask" v-if="showProfileModal" @click="showProfileModal = false">
+      <view class="profile-modal-container" @click.stop>
+        <view class="profile-modal-header">
+          <text class="profile-modal-title">修改个人资料</text>
+          <text class="profile-modal-close" @click="showProfileModal = false">×</text>
+        </view>
+        <view class="profile-modal-body">
+          <view class="profile-form-item">
+            <text class="profile-label">更替头像</text>
+            <!-- #ifdef MP-WEIXIN -->
+            <button class="avatar-wrapper" open-type="chooseAvatar" @chooseavatar="onChooseAvatar" style="background: none; border: none; padding: 0; line-height: normal;">
+              <image class="modal-avatar" :src="tempAvatar || userInfo.avatar || '/static/default-avatar.png'" mode="aspectFill"></image>
+              <view class="avatar-edit-tag">点击同步微信头像</view>
+            </button>
+            <view class="custom-avatar-btn" @tap="changeAvatar">拍照或上传图片</view>
+            <!-- #endif -->
+            <!-- #ifndef MP-WEIXIN -->
+            <view class="avatar-wrapper" @tap="changeAvatar" style="display: flex; flex-direction: column; align-items: center; cursor: pointer;">
+              <image class="modal-avatar" :src="tempAvatar || userInfo.avatar || '/static/default-avatar.png'" mode="aspectFill"></image>
+              <view class="avatar-edit-tag">点击拍照或上传</view>
+            </view>
+            <!-- #endif -->
+          </view>
+          
+          <view class="profile-form-item">
+            <text class="profile-label">个人昵称</text>
+            <input 
+              type="text" 
+              class="nickname-input" 
+              placeholder="请输入您的昵称" 
+              v-model="tempNickname" 
+              @blur="onNicknameBlur"
+              @input="onNicknameInput"
+            />
+          </view>
+        </view>
+        <view class="profile-modal-footer">
+          <button class="profile-submit-btn" @click="saveProfile" :disabled="!tempNickname.trim()">确认保存</button>
+        </view>
+      </view>
+    </view>
+
+    <!-- #ifndef MP-WEIXIN -->
+    <view class="profile-modal-mask" v-if="showAccountModal" @click="showAccountModal = false">
+      <view class="profile-modal-container" @click.stop>
+        <view class="profile-modal-header">
+          <text class="profile-modal-title">{{ authMode === 'login' ? '账号登录' : '新号注册' }}</text>
+          <text class="profile-modal-close" @click="showAccountModal = false">×</text>
+        </view>
+        <view class="profile-modal-body">
+          <view class="auth-tabs">
+            <view class="auth-tab" :class="{ active: authMode === 'login' }" @click="authMode = 'login'">登录</view>
+            <view class="auth-tab" :class="{ active: authMode === 'register' }" @click="authMode = 'register'">注册</view>
+          </view>
+          
+          <view class="profile-form-item" style="margin-bottom: 24rpx;">
+            <text class="profile-label" style="align-self: flex-start;">账号</text>
+            <input 
+              type="text" 
+              class="nickname-input" 
+              placeholder="请输入账号 (字母/数字)" 
+              v-model="authUsername" 
+              maxlength="20"
+            />
+          </view>
+          
+          <view class="profile-form-item">
+            <text class="profile-label" style="align-self: flex-start;">密码</text>
+            <input 
+              type="text"
+              password
+              class="nickname-input" 
+              placeholder="请输入密码 (至少6位)" 
+              v-model="authPassword" 
+              maxlength="20"
+            />
+          </view>
+        </view>
+        <view class="profile-modal-footer">
+          <button class="profile-submit-btn" @click="submitAccountAuth" :disabled="!authUsername.trim() || !authPassword.trim()">
+            {{ authMode === 'login' ? '立即登录' : '立即注册' }}
+          </button>
+        </view>
+      </view>
+    </view>
+    <!-- #endif -->
   </view>
 </template>
 
@@ -379,7 +484,8 @@ import {
   submitFeedbackApi,
   getUserFeedbackListApi,
   getAdminFeedbackListApi,
-  replyFeedbackApi
+  replyFeedbackApi,
+  toggleAuditModeApi
 } from '@/api/user'
 
 const themeStore = useThemeStore()
@@ -432,12 +538,23 @@ const showReplyModal = ref(false)
 const selectedFeedbackForReply = ref(null)
 const replyText = ref('')
 
+const showProfileModal = ref(false)
+const tempNickname = ref('')
+const tempAvatar = ref('')
+
+const showAccountModal = ref(false)
+const authMode = ref('login') // 'login' or 'register'
+const authUsername = ref('')
+const authPassword = ref('')
+
 // 监听抽屉或反馈弹窗打开状态，打开时隐藏原生TabBar，关闭时恢复，防止遮挡或点击穿透
 const isDrawerOrPopupOpen = computed(() => 
   showFeedDrawer.value || 
   showFeedbackPopup.value || 
   showAdminFeedbackPopup.value || 
-  showReplyModal.value
+  showReplyModal.value ||
+  showProfileModal.value ||
+  showAccountModal.value
 )
 watch(isDrawerOrPopupOpen, (val) => {
   if (val) {
@@ -544,9 +661,9 @@ function getBeastWords(pet) {
     zhuque: '离火离火，朱雀展翅。我感受到今天南方有融融暖气，桃花指数拉满！',
     baihu: '西方白虎，庚金锐气。看我帮你撕碎今天所有的霉运和是非阻碍！',
     xuanwu: '玄水护体，太极阴阳。家宅安宁最重要，主人记得作息规律哦~',
-    qilin: '瑞兽踏祥云，乾坤如意。主人今天各方气运平稳上行，百无禁忌！'
+    qilin: '瑞兽踏祥云，乾坤如意。主人今天各方能量平稳上行，百无禁忌！'
   }
-  return words[pet.type] || '守护气运，伴您左右！'
+  return words[pet.type] || '守护能量，伴您左右！'
 }
 
 // 加载神兽状态
@@ -638,22 +755,30 @@ const onOpenGiftBox = async () => {
     return
   }
   uni.showLoading({ title: '开福袋中...' })
+  let modal = null
+  let toast = null
   try {
     const res = await drawPetRewardApi()
     if (res.code === 0) {
       petData.value = res.data.pet
-      uni.hideLoading()
-      uni.showModal({
+      modal = {
         title: `🎁 获得：${res.data.rewardName}`,
         content: res.data.rewardDesc,
         showCancel: false
-      })
-      await userStore.fetchUserInfo() // 刷新VIP状态等
+      }
+      await userStore.fetchUserInfo()
+    } else {
+      toast = { title: res.message || '开启福袋失败', icon: 'none' }
     }
   } catch (e) {
+    toast = { title: e.message || '开启福袋失败', icon: 'none' }
+  } finally {
+    // 原来只在 code === 0 和 catch 两条路上 hideLoading，
+    // 一旦走到「有响应但 code 不为 0」这条路，loading 就永远挂在页面上
     uni.hideLoading()
-    uni.showToast({ title: e.message || '开启福袋失败', icon: 'none' })
   }
+  if (modal) uni.showModal(modal)
+  if (toast) uni.showToast(toast)
 }
 
 const loadStats = async () => {
@@ -683,6 +808,7 @@ onShow(() => {
 })
 
 const login = async () => {
+  // #ifdef MP-WEIXIN
   const result = await userStore.login()
   if (result.success) {
     uni.showToast({ title: '已开悟登录', icon: 'success' })
@@ -691,7 +817,63 @@ const login = async () => {
   } else {
     uni.showToast({ title: result.message || '登录失败', icon: 'none' })
   }
+  // #endif
+  
+  // #ifndef MP-WEIXIN
+  showAccountModal.value = true
+  // #endif
 }
+
+// #ifndef MP-WEIXIN
+const submitAccountAuth = async () => {
+  const username = authUsername.value.trim()
+  const password = authPassword.value.trim()
+  if (!username || !password) {
+    uni.showToast({ title: '请输入用户名和密码', icon: 'none' })
+    return
+  }
+  if (password.length < 6) {
+    uni.showToast({ title: '密码长度不能少于6位', icon: 'none' })
+    return
+  }
+  
+  let toast = null
+  let done = false
+  uni.showLoading({ title: authMode.value === 'login' ? '正在登录...' : '正在注册...' })
+  try {
+    let result
+    if (authMode.value === 'login') {
+      result = await userStore.loginAccount(username, password)
+    } else {
+      result = await userStore.registerAccount(username, password)
+    }
+
+    if (result.success) {
+      done = true
+      toast = {
+        title: authMode.value === 'login' ? '登录成功' : '注册成功',
+        icon: 'success'
+      }
+    } else {
+      toast = { title: result.message || '操作失败', icon: 'none' }
+    }
+  } catch (err) {
+    toast = { title: err.message || '请求失败', icon: 'none' }
+  } finally {
+    uni.hideLoading()
+  }
+  // 提示排在 hideLoading 之后，否则「登录成功」会被一起收走
+  if (toast) uni.showToast(toast)
+  if (done) {
+    showAccountModal.value = false
+    authUsername.value = ''
+    authPassword.value = ''
+    // 登录成功后加载数据
+    loadStats()
+    loadPetStatus()
+  }
+}
+// #endif
 
 const navigateTo = (url) => {
   uni.navigateTo({ url })
@@ -705,10 +887,23 @@ const toggleTheme = () => {
   uni.showToast({ title: `已切换为${themeName.value}`, icon: 'none' })
 }
 
+const handleLogout = () => {
+  uni.showModal({
+    title: '提示',
+    content: '确定要退出当前登录并清除本地缓存吗？',
+    success: (res) => {
+      if (res.confirm) {
+        userStore.logout()
+        uni.showToast({ title: '已成功退出并清除缓存', icon: 'success' })
+      }
+    }
+  })
+}
+
 const showAbout = () => {
   uni.showModal({
-    title: '关于算命大师',
-    content: '阳阴八字、玄学堪舆、塔罗星象。本小程序所有批注结果由智能命理解析引擎生成，仅供娱乐与行事参考，祝您顺风顺水。',
+    title: '关于今日星能量',
+    content: '阳阴八字、玄学堪舆、塔罗星象。本小程序所有批注结果由智能性格解析引擎生成，仅供娱乐与行事参考，祝您顺风顺水。',
     showCancel: false
   })
 }
@@ -734,17 +929,22 @@ const setFeedbackTab = async (tab) => {
 
 const loadUserFeedbackHistory = async () => {
   if (!isLoggedIn.value) return
+  // 提示一律排在 hideLoading 之后：两者共用同一个原生浮层
+  let toast = null
   uni.showLoading({ title: '加载中...' })
   try {
     const res = await getUserFeedbackListApi({ page: 1, pageSize: 50 })
     if (res.code === 0 && res.data) {
       userFeedbackList.value = res.data.list || []
+    } else if (res.code !== 0) {
+      toast = { title: res.message || '加载历史反馈失败', icon: 'none' }
     }
   } catch (e) {
-    uni.showToast({ title: e.message || '加载历史反馈失败', icon: 'none' })
+    toast = { title: e.message || '加载历史反馈失败', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
+  if (toast) uni.showToast(toast)
 }
 
 const submitFeedback = async () => {
@@ -752,6 +952,8 @@ const submitFeedback = async () => {
     uni.showToast({ title: '反馈内容不能为空', icon: 'none' })
     return
   }
+  let toast = null
+  let submitted = false
   uni.showLoading({ title: '正在提交反馈...' })
   try {
     const res = await submitFeedbackApi({
@@ -760,16 +962,57 @@ const submitFeedback = async () => {
       contact: feedbackContact.value.trim() || undefined
     })
     if (res.code === 0) {
-      uni.showToast({ title: '反馈提交成功，多谢支持！', icon: 'success' })
-      showFeedbackPopup.value = false
+      submitted = true
+      toast = { title: '反馈提交成功，多谢支持！', icon: 'success' }
     } else {
-      uni.showToast({ title: res.message || '提交失败', icon: 'none' })
+      toast = { title: res.message || '提交失败', icon: 'none' }
     }
   } catch (err) {
-    uni.showToast({ title: err.message || '提交异常', icon: 'none' })
+    toast = { title: err.message || '提交异常', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
+  if (submitted) showFeedbackPopup.value = false
+  if (toast) uni.showToast(toast)
+}
+
+// 简洁模式（后端字段 auditMode）：开启后首页只放出星座能量与空间美学
+// switch 在小程序端是受控渲染，切换失败时必须靠本地 ref 复位，
+// 只回写 store 是不够的 —— 值没变化视图就不会回弹
+const auditSwitchValue = ref(userStore.auditMode)
+const auditSwitching = ref(false)
+
+watch(() => userStore.auditMode, (val) => {
+  auditSwitchValue.value = !!val
+})
+
+const toggleAuditMode = async (e) => {
+  const newStatus = !!e.detail.value
+  if (auditSwitching.value) return
+  auditSwitching.value = true
+  auditSwitchValue.value = newStatus
+  uni.showLoading({ title: '正在切换模式...', mask: true })
+  let toast = null
+  try {
+    const res = await toggleAuditModeApi({ auditMode: newStatus })
+    if (res.code === 0) {
+      userStore.auditMode = newStatus
+      toast = { title: newStatus ? '已开启简洁模式' : '已开放完整功能', icon: 'success' }
+    } else {
+      auditSwitchValue.value = !newStatus
+      toast = { title: res.message || '切换失败', icon: 'none' }
+    }
+  } catch (err) {
+    console.error('切换简洁模式失败:', err)
+    auditSwitchValue.value = !newStatus
+    toast = { title: err.message || '网络请求失败', icon: 'none' }
+  } finally {
+    uni.hideLoading()
+    auditSwitching.value = false
+  }
+  // loading 和 toast 在小程序里是同一个原生浮层，先 hideLoading 再弹，
+  // 否则 finally 里的 hideLoading 会把刚弹出来的 toast 一起关掉
+  if (toast) uni.showToast(toast)
 }
 
 // 管理端操作方法
@@ -781,6 +1024,7 @@ const showAdminPanel = async () => {
 }
 
 const loadAdminFeedbacks = async () => {
+  let toast = null
   uni.showLoading({ title: '拉取反馈中...' })
   try {
     const params = { page: 1, pageSize: 100 }
@@ -788,16 +1032,19 @@ const loadAdminFeedbacks = async () => {
     const typeVal = adminTypeValues[adminTypeIndex.value]
     if (statusVal !== 'all') params.status = statusVal
     if (typeVal !== 'all') params.type = typeVal
-    
+
     const res = await getAdminFeedbackListApi(params)
     if (res.code === 0 && res.data) {
       adminFeedbackList.value = res.data.list || []
+    } else if (res.code !== 0) {
+      toast = { title: res.message || '拉取数据失败', icon: 'none' }
     }
   } catch (e) {
-    uni.showToast({ title: e.message || '拉取数据失败', icon: 'none' })
+    toast = { title: e.message || '拉取数据失败', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
+  if (toast) uni.showToast(toast)
 }
 
 const onAdminStatusFilterChange = (e) => {
@@ -821,24 +1068,32 @@ const submitReply = async () => {
     uni.showToast({ title: '请输入回复内容', icon: 'none' })
     return
   }
+  let toast = null
+  let replied = false
   uni.showLoading({ title: '正在回复并赠礼...' })
   try {
     const res = await replyFeedbackApi(selectedFeedbackForReply.value._id, {
       replyContent: replyText.value.trim()
     })
     if (res.code === 0) {
-      uni.showToast({ title: res.message || '已成功回复并采纳！', icon: 'success' })
-      showReplyModal.value = false
-      await loadAdminFeedbacks()
-      // 重新载入当前用户信息（额度更新）
-      await userStore.fetchUserInfo()
+      replied = true
+      toast = { title: res.message || '已成功回复并采纳！', icon: 'success' }
     } else {
-      uni.showToast({ title: res.message || '回复失败', icon: 'none' })
+      toast = { title: res.message || '回复失败', icon: 'none' }
     }
   } catch (e) {
-    uni.showToast({ title: e.message || '回复异常', icon: 'none' })
+    toast = { title: e.message || '回复异常', icon: 'none' }
   } finally {
     uni.hideLoading()
+  }
+  if (toast) uni.showToast(toast)
+  // 刷新动作放在 loading 关掉之后再做：loadAdminFeedbacks 自己也会 showLoading，
+  // 嵌在上面的 try 里会出现两层浮层互相关闭，回复成功的提示也会被顺手收走
+  if (replied) {
+    showReplyModal.value = false
+    await loadAdminFeedbacks()
+    // 重新载入当前用户信息（额度更新）
+    await userStore.fetchUserInfo()
   }
 }
 
@@ -857,6 +1112,149 @@ const formatTime = (timeStr) => {
   const hh = String(date.getHours()).padStart(2, '0')
   const mm = String(date.getMinutes()).padStart(2, '0')
   return `${y}-${m}-${d} ${hh}:${mm}`
+}
+
+const openProfileModal = () => {
+  if (!isLoggedIn.value) {
+    login()
+    return
+  }
+  tempNickname.value = userInfo.value.nickname || ''
+  tempAvatar.value = userInfo.value.avatar || ''
+  showProfileModal.value = true
+}
+
+const getBase64Image = (filePath) => {
+  return new Promise((resolve, reject) => {
+    // #ifdef MP-WEIXIN
+    uni.getFileSystemManager().readFile({
+      filePath: filePath,
+      encoding: 'base64',
+      success: (res) => {
+        resolve('data:image/jpeg;base64,' + res.data)
+      },
+      fail: (err) => {
+        reject(err)
+      }
+    })
+    // #endif
+    // #ifndef MP-WEIXIN
+    if (filePath.startsWith('blob:') || filePath.startsWith('http')) {
+      fetch(filePath)
+        .then(res => res.blob())
+        .then(blob => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve(reader.result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        })
+        .catch(err => {
+          resolve(filePath);
+        });
+    } else {
+      resolve(filePath);
+    }
+    // #endif
+  })
+}
+
+const changeAvatar = () => {
+  console.log('changeAvatar called')
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: ['album', 'camera'],
+    success: async (res) => {
+      console.log('uni.chooseImage success:', res)
+      const tempFilePath = res.tempFilePaths[0]
+      if (!tempFilePath) {
+        uni.showToast({ title: '图片路径为空', icon: 'none' })
+        return
+      }
+
+      uni.showLoading({ title: '正在处理头像...' })
+      try {
+        const base64 = await getBase64Image(tempFilePath)
+        tempAvatar.value = base64
+      } catch (err) {
+        console.error('getBase64Image error:', err)
+        uni.showModal({
+          title: '处理图片错误',
+          content: err.message || JSON.stringify(err),
+          showCancel: false
+        })
+      } finally {
+        uni.hideLoading()
+      }
+    },
+    fail: (err) => {
+      console.error('uni.chooseImage fail:', err)
+      uni.showModal({
+        title: '未能选择图片',
+        content: `原因: ${err.errMsg || '未知错误'}\n提示: 小程序后台需开通相册与摄像头权限。若微信已禁止该小程序调用相关权限，可前往“小程序设置”重新允许。`,
+        showCancel: false
+      })
+    }
+  })
+}
+
+const onChooseAvatar = async (e) => {
+  const avatarUrl = e.detail.avatarUrl
+  if (!avatarUrl) return
+
+  let toast = null
+  uni.showLoading({ title: '正在处理头像...' })
+  try {
+    const base64 = await getBase64Image(avatarUrl)
+    tempAvatar.value = base64
+  } catch (err) {
+    toast = { title: '处理图片失败，请重试', icon: 'none' }
+  } finally {
+    uni.hideLoading()
+  }
+  if (toast) uni.showToast(toast)
+}
+
+const onNicknameBlur = (e) => {
+  tempNickname.value = e.detail.value || ''
+}
+
+const onNicknameInput = (e) => {
+  tempNickname.value = e.detail.value || ''
+}
+
+const saveProfile = async () => {
+  if (!tempNickname.value.trim()) {
+    uni.showToast({ title: '昵称不能为空', icon: 'none' })
+    return
+  }
+
+  let toast = null
+  let saved = false
+  uni.showLoading({ title: '保存中...' })
+  try {
+    const updateData = {
+      nickname: tempNickname.value.trim()
+    }
+    if (tempAvatar.value) {
+      updateData.avatar = tempAvatar.value
+    }
+    const res = await userStore.updateUserInfo(updateData)
+    if (res.success) {
+      saved = true
+      toast = { title: '个人资料保存成功', icon: 'success' }
+    } else {
+      toast = { title: res.message || '保存失败', icon: 'none' }
+    }
+  } catch (err) {
+    toast = { title: '请求失败，请稍后重试', icon: 'none' }
+  } finally {
+    uni.hideLoading()
+  }
+  if (saved) showProfileModal.value = false
+  if (toast) uni.showToast(toast)
 }
 </script>
 
@@ -2176,6 +2574,32 @@ const formatTime = (timeStr) => {
   border-top: 2rpx dashed rgba(200, 162, 97, 0.25);
 }
 
+/* 简洁模式开关行：图标 + 两行文案 + switch */
+.audit-switch-item {
+  padding-right: 16rpx;
+}
+
+.menu-text-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-right: 16rpx;
+}
+
+.menu-text-col .menu-name {
+  flex: none;
+}
+
+.menu-desc {
+  font-size: 22rpx;
+  color: var(--text-secondary, #999);
+  margin-top: 6rpx;
+  line-height: 1.4;
+}
+.theme-chinese .menu-desc {
+  color: #a69ebd;
+}
+
 .admin-feedback-modal {
   position: fixed;
   top: 0;
@@ -2498,5 +2922,242 @@ const formatTime = (timeStr) => {
 .theme-chinese .reply-submit-btn {
   background: linear-gradient(135deg, #c41e3a, #990f26);
   box-shadow: 0 6rpx 20rpx rgba(196, 30, 58, 0.4);
+}
+
+/* 微信头像昵称填写弹窗样式 */
+.edit-profile-tip {
+  font-size: 18rpx;
+  color: var(--primary-color, #c41e3a);
+  background: rgba(196, 30, 58, 0.1);
+  border: 1rpx solid var(--primary-color, #c41e3a);
+  padding: 2rpx 14rpx;
+  border-radius: 20rpx;
+  font-weight: bold;
+}
+.theme-chinese .edit-profile-tip {
+  color: #e5c158;
+  background: rgba(229, 193, 88, 0.1);
+  border: 1rpx solid #e5c158;
+}
+
+.profile-modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(15rpx);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 99999;
+}
+
+.profile-modal-container {
+  width: 85%;
+  max-width: 600rpx;
+  background: var(--card-bg, #fff);
+  border-radius: 30rpx;
+  padding: 40rpx;
+  box-sizing: border-box;
+  box-shadow: 0 20rpx 50rpx rgba(0, 0, 0, 0.3);
+}
+
+.theme-chinese .profile-modal-container {
+  background: rgba(30, 20, 22, 0.95);
+  border: 2rpx solid #6b1d28;
+  color: #fff;
+}
+
+.profile-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40rpx;
+}
+
+.profile-modal-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: var(--text-primary, #333);
+}
+.theme-chinese .profile-modal-title {
+  color: #e5c158;
+}
+
+.profile-modal-close {
+  font-size: 44rpx;
+  color: var(--text-secondary, #999);
+  padding: 10rpx;
+}
+.theme-chinese .profile-modal-close {
+  color: #a69ebd;
+}
+
+.profile-modal-body {
+  margin-bottom: 40rpx;
+}
+
+.profile-form-item {
+  margin-bottom: 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.profile-label {
+  font-size: 26rpx;
+  color: var(--text-secondary, #666);
+  margin-bottom: 20rpx;
+  align-self: flex-start;
+}
+.theme-chinese .profile-label {
+  color: #a69ebd;
+}
+
+.avatar-wrapper {
+  background: none;
+  padding: 0;
+  margin: 0;
+  line-height: normal;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.avatar-wrapper::after {
+  border: none;
+}
+
+.modal-avatar {
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 50%;
+  border: 4rpx solid var(--secondary-color, #e5c158);
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.15);
+}
+
+.avatar-edit-tag {
+  font-size: 22rpx;
+  color: var(--primary-color, #c41e3a);
+  margin-top: 12rpx;
+}
+.theme-chinese .avatar-edit-tag {
+  color: #e5c158;
+}
+
+.nickname-input {
+  width: 100%;
+  height: 88rpx;
+  background: var(--input-bg, #f5f5f5);
+  border-radius: 16rpx;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+  color: var(--text-primary, #333);
+  box-sizing: border-box;
+  text-align: center;
+}
+.theme-chinese .nickname-input {
+  background: rgba(14, 11, 12, 0.6);
+  border: 2rpx solid #5a353b;
+  color: #fff;
+}
+
+.profile-modal-footer {
+  width: 100%;
+}
+
+.profile-submit-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background: var(--primary-color, #c41e3a);
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: bold;
+  border-radius: 44rpx;
+  border: none;
+  box-shadow: 0 6rpx 16rpx rgba(196, 30, 58, 0.2);
+}
+.theme-chinese .profile-submit-btn {
+  background: linear-gradient(135deg, #c41e3a, #990f26);
+  box-shadow: 0 6rpx 20rpx rgba(196, 30, 58, 0.4);
+}
+
+.profile-submit-btn[disabled] {
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+.logout-item .menu-name {
+  color: var(--primary-color, #c41e3a) !important;
+  font-weight: bold;
+}
+.theme-chinese .logout-item .menu-name {
+  color: #ff5500 !important;
+}
+
+/* H5 账号登录/注册 Tab 样式 */
+.auth-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 40rpx;
+  margin-bottom: 40rpx;
+  border-bottom: 2rpx solid var(--border-color, #eee);
+  padding-bottom: 16rpx;
+}
+.theme-chinese .auth-tabs {
+  border-bottom: 2rpx solid #6b1d28;
+}
+.auth-tab {
+  font-size: 30rpx;
+  color: var(--text-secondary, #666);
+  position: relative;
+  padding: 10rpx 20rpx;
+  cursor: pointer;
+}
+.theme-chinese .auth-tab {
+  color: #a69ebd;
+}
+.auth-tab.active {
+  color: var(--primary-color, #c41e3a);
+  font-weight: bold;
+}
+.theme-chinese .auth-tab.active {
+  color: #e5c158;
+}
+.auth-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -18rpx;
+  left: 0;
+  right: 0;
+  height: 4rpx;
+  background: var(--primary-color, #c41e3a);
+  border-radius: 2rpx;
+}
+.theme-chinese .auth-tab.active::after {
+  background: #e5c158;
+}
+
+/* 拍照/上传图片按钮样式 */
+.custom-avatar-btn {
+  margin-top: 15rpx;
+  background: var(--primary-color, #c41e3a);
+  color: #fff;
+  font-size: 22rpx;
+  height: 50rpx;
+  line-height: 50rpx;
+  width: auto;
+  padding: 0 30rpx;
+  border-radius: 25rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(196, 30, 58, 0.2);
+  cursor: pointer;
+}
+.theme-chinese .custom-avatar-btn {
+  background: linear-gradient(135deg, #c41e3a, #990f26);
+  box-shadow: 0 4rpx 10rpx rgba(196, 30, 58, 0.4);
 }
 </style>

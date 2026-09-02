@@ -25,9 +25,23 @@
           <text class="item-summary">{{ item.summary }}</text>
         </view>
         <view class="item-footer">
-          <text class="item-rating">运势：{{ item.rating }}</text>
+          <text class="item-rating">能量：{{ item.rating }}</text>
           <text class="item-arrow">›</text>
         </view>
+      </view>
+    </view>
+
+    <view class="empty-state" v-else-if="loading">
+      <text class="empty-icon">⏳</text>
+      <text class="empty-text">正在读取历史记录...</text>
+    </view>
+
+    <view class="empty-state" v-else-if="loadError">
+      <text class="empty-icon">⚠️</text>
+      <text class="empty-text">历史记录没能加载出来</text>
+      <text class="empty-desc">{{ loadError }}</text>
+      <view class="retry-btn" @click="loadHistory()">
+        <text class="retry-btn-text">重新加载</text>
       </view>
     </view>
 
@@ -46,24 +60,26 @@ import { getFortuneRecordsApi, deleteFortuneRecordApi } from '@/api/fortune'
 const currentFilter = ref('all')
 const historyList = ref([])
 const loading = ref(false)
+// 加载失败要和「真的一条都没有」分开：只有 loadError 为空且列表为空才是空态
+const loadError = ref('')
 
 const filters = [
   { id: 'all', name: '全部' },
-  { id: 'bazi', name: '八字' },
+  { id: 'bazi', name: '生日密码' },
   { id: 'tarot', name: '塔罗' },
   { id: 'name', name: '姓名' },
-  { id: 'fengshui', name: '风水' },
-  { id: 'face', name: '面相' },
+  { id: 'fengshui', name: '空间美学' },
+  { id: 'face', name: 'AI颜值' },
   { id: 'palm', name: '手相' }
 ]
 
 const typeNameMap = {
-  bazi: '生辰八字',
-  tarot: '塔罗占卜',
+  bazi: '生日密码',
+  tarot: '灵感卡牌',
   name: '姓名测算',
-  fengshui: '风水分析',
-  daily: '每日运势',
-  face: '面相分析',
+  fengshui: '空间美学分析',
+  daily: '每日灵感',
+  face: 'AI颜值分析',
   palm: '手相分析'
 }
 
@@ -74,6 +90,7 @@ const filteredHistory = computed(() => {
 
 const loadHistory = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     const params = { page: 1, pageSize: 50 }
     if (currentFilter.value !== 'all') {
@@ -121,7 +138,13 @@ const loadHistory = async () => {
       }
     })
   } catch (err) {
-    historyList.value = []
+    // 千万不要在这里把 historyList 清空。加载失败 ≠ 没有记录，
+    // 清空之后页面显示「暂无历史记录 / 快去测算一下吧」，用户看到的就是「我的记录全丢了」。
+    loadError.value = err?.message || '网络不太顺畅，请稍后再试'
+    if (historyList.value.length > 0) {
+      // 列表里还留着上一次的数据，空态提示不会出现，用 toast 说明这次刷新没成功
+      uni.showToast({ title: loadError.value, icon: 'none' })
+    }
   } finally {
     loading.value = false
   }
@@ -137,16 +160,22 @@ const deleteItem = (id) => {
     content: '确定要删除这条记录吗？',
     success: async (res) => {
       if (res.confirm) {
+        // showLoading 和 showToast 共用同一个原生浮层：提示必须排在 hideLoading 之后，
+        // 否则 hideLoading 会把刚弹出的提示一起收走，删成功/删失败用户都看不到
+        let toast = null
+        let deleted = false
         uni.showLoading({ title: '删除中...' })
         try {
           await deleteFortuneRecordApi(id)
-          uni.showToast({ title: '删除成功', icon: 'success' })
-          loadHistory()
+          deleted = true
+          toast = { title: '删除成功', icon: 'success' }
         } catch (err) {
-          uni.showToast({ title: err.message || '删除失败', icon: 'none' })
+          toast = { title: err?.message || '删除失败', icon: 'none' }
         } finally {
           uni.hideLoading()
         }
+        if (toast) uni.showToast(toast)
+        if (deleted) loadHistory()
       }
     }
   })
@@ -284,5 +313,18 @@ onMounted(() => {
   color: var(--text-secondary, #999);
   margin-top: 8rpx;
   display: block;
+}
+
+.retry-btn {
+  display: inline-block;
+  margin-top: 32rpx;
+  padding: 16rpx 48rpx;
+  border-radius: 40rpx;
+  background: var(--primary-color, #c41e3a);
+}
+
+.retry-btn-text {
+  font-size: 28rpx;
+  color: #fff;
 }
 </style>

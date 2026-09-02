@@ -6,7 +6,7 @@
 
     <!-- 1. 选择牌阵 -->
     <view class="spread-selector" v-if="!selectedSpread">
-      <text class="section-title">✨ 选择您的塔罗牌阵 ✨</text>
+      <text class="section-title">✨ 选择您的卡牌阵 ✨</text>
       <view class="spread-list">
         <view class="spread-item" v-for="spread in spreads" :key="spread.id" @click="selectSpread(spread)">
           <text class="spread-name">{{ spread.name }}</text>
@@ -18,7 +18,7 @@
       <!-- 牌意说明百科入口 -->
       <view class="guide-entrance" @click="showGuide = true">
         <text class="guide-entrance-icon">📖</text>
-        <text class="guide-entrance-text">查看 22 张塔罗牌意说明</text>
+        <text class="guide-entrance-text">查看 22 张灵感卡牌说明</text>
       </view>
     </view>
 
@@ -66,7 +66,7 @@
       </scroll-view>
 
       <button class="gold-btn" @click="drawCards" :disabled="selectedCards.length !== selectedSpread.cards || isAnimating">
-        {{ isAnimating ? '正在开启命运牌阵...' : '揭晓占卜结果' }}
+        {{ isAnimating ? '正在开启命运牌阵...' : '揭晓灵感指引' }}
       </button>
     </view>
 
@@ -95,11 +95,11 @@
 
       <view class="action-btns">
         <button class="action-btn share" @click="share">分享与保存海报</button>
-        <button class="action-btn reset-btn" @click="reset">重新占卜</button>
+        <button class="action-btn reset-btn" @click="reset">重新抽取</button>
       </view>
     </view>
 
-    <!-- 4. 塔罗牌意百科弹窗 (Bottom Drawer) -->
+    <!-- 4. 灵感卡牌百科弹窗 (Bottom Drawer) -->
     <view class="guide-modal" v-if="showGuide" @click="showGuide = false">
       <view class="guide-content" @click.stop>
         <view class="guide-header">
@@ -137,7 +137,7 @@
     </view>
 
     <view class="disclaimer">
-      <text>塔罗牌占卜仅供娱乐参考，不构成任何决策建议</text>
+      <text>灵感卡牌仅供娱乐参考，不构成任何决策建议</text>
     </view>
   </view>
 </template>
@@ -155,7 +155,7 @@ const cardInfoMap = ref({})
 const isAnimating = ref(false)
 const scrollLeft = ref(0)
 
-// 塔罗占卜玄学声效资源 (Royalty-free)
+// 灵感卡牌玄学声效资源 (Royalty-free)
 const AUDIO_URLS = {
   shuffle: 'https://assets.mixkit.co/active_storage/sfx/2014/2014-84.wav', // 纸牌洗牌摩擦声
   select: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav',  // 选中卡牌水滴钟声
@@ -258,7 +258,7 @@ const cardMeaningsDetail = {
   '战车': { positive: '意志力胜出、勇敢前行、掌控局面、战胜困难。只要坚持到底必获胜利。', negative: '失控受阻、方向混乱、情绪失衡、急功近利。建议暂停行动，重新规划方向。' },
   '力量': { positive: '以柔克刚、内在勇气、坚韧自律、包容万物。用爱与耐心可以轻松化解危机。', negative: '软弱无力、情绪失控、滥用暴力、丧失信心。需静心，重新唤醒内心潜能。' },
   '隐士': { positive: '内省沉淀、寻求真理、导师指引、独处反思。目前适合静心策划，切忌急躁。', negative: '孤僻自闭、盲目摸索、拒绝建议、错失良机。建议适度与外界建立健康的连接。' },
-  '命运之轮': { positive: '转折点出现、顺应天命、幸运降临、契机到来。代表运势正逐步迈入上升期。', negative: '坏运气干扰、抗拒改变、错失良机、盲目投机。需稳住心态，相信否极泰来。' },
+  '命运之轮': { positive: '转折点出现、顺应趋势、幸运降临、契机到来。代表运势正逐步迈入上升期。', negative: '坏运气干扰、抗拒改变、错失良机、盲目投机。需稳住心态，相信否极泰来。' },
   '正义': { positive: '公正裁决、真诚诚实、因果平衡、理性评估。代表公平交易与清正的原则。', negative: '遭遇不公、偏见偏袒、逃避责任、法律纠纷。需反思自己是否存在偏激立场。' },
   '倒吊人': { positive: '甘愿牺牲、换位思考、以退为进、精神觉醒。停滞中正孕育着新的觉醒。', negative: '徒劳无功、抗拒妥协、挣扎停滞、精神受挫。需要打破僵局，换个角度看世界。' },
   '死神': { positive: '旧事物的终结、斩断执念、蜕变重生、开启新纪元。旧的不去，新的不来。', negative: '苟延残喘、害怕改变、拒绝放手、停滞不前。需勇敢舍弃没有价值的过去。' },
@@ -330,7 +330,7 @@ const drawCards = async () => {
     })
     
     if (res.code !== 0) {
-      throw new Error(res.message || '占卜失败')
+      throw new Error(res.message || '抽取失败')
     }
 
     const data = res.data
@@ -372,7 +372,7 @@ const drawCards = async () => {
     
     await userStore.fetchUserInfo()
   } catch (err) {
-    uni.showToast({ title: err.message || '占卜失败', icon: 'none' })
+    uni.showToast({ title: err.message || '抽取失败', icon: 'none' })
     isAnimating.value = false
   } finally {
     loading.value = false
@@ -384,8 +384,8 @@ const share = () => {
   const cardsText = drawnCards.value.map(c => `· ${c.name} (${c.reversed ? '逆位' : '正位'}): ${c.meaning}`).join('\n')
   const query = {
     type: 'tarot',
-    title: `${selectedSpread.value?.name || '塔罗牌'}占卜法卷`,
-    name: '占卜信士',
+    title: `${selectedSpread.value?.name || '灵感卡牌'}分析报告`,
+    name: '分析对象',
     score: 92,
     analysis: `【牌阵抽选】\n${cardsText}\n\n【综合解读】\n${overallReading.value}`
   }
