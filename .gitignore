@@ -31,3 +31,8 @@ server-deploy.zip
 .vscode/
 .idea/
 Thumbs.db
+
+# 本地临时产物：deploy_helper.py 的字节码缓存、排查时解包部署包的落地目录
+__pycache__/
+*.pyc
+temp_extracted/

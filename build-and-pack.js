@@ -48,7 +48,7 @@ try {
   }
 
   // 使用 Windows 自带的 tar.exe 压缩，排除 node_modules, logs, .env 等本地开发文件
-  const tarCmd = 'tar.exe -a -c -f ../server-deploy.zip --exclude="node_modules" --exclude="logs" --exclude=".env" .';
+  const tarCmd = 'tar.exe -a -c -f ../server-deploy.zip --exclude="node_modules" --exclude="logs" --exclude=".env" --exclude=".env.*" .';
   execSync(tarCmd, { cwd: path.join(__dirname, 'server'), stdio: 'inherit' });
   console.log('部署包打包成功 -> ' + zipPath);
 
