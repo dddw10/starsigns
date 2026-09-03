@@ -94,10 +94,16 @@
 
 - **管理员判定**：[config/admin.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/config/admin.js) — 由 `ADMIN_PHONES` / `ADMIN_USER_IDS` 两个环境变量（逗号分隔）声明白名单，手机号归一化后比较，`+86`、空格、横线等写法都能命中。白名单在**每次调用时读环境变量**，改配置不必改代码；白名单为空时谁都不是管理员。判定结果通过用户信息里的 `isAdmin` 下发给小程序端。
 - **简洁模式 (`auditMode`)**：[config/systemConfig.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/config/systemConfig.js)
-  - **含义**：开启后小程序首页只放出星座能量与空间美学两项，用于送审等需要收敛功能面的场景。
+  - **含义**：开启后只放出星座能量与空间美学两项测算，用于送审等需要收敛功能面的场景。
   - **读**：`GET /api/config` 返回当前开关，值存在 MongoDB 的 `configs` 集合（`key: 'auditMode'`），带 **60 秒进程内缓存**；数据库不可用时回落到环境变量 `AUDIT_MODE`，且**只有显式写 `false` 才关闭**（送审安全优先）。
-  - **写**：`POST /api/admin/config/toggle`（整个 `/api/admin/*` 由 `adminMiddleware` 把守），写库后立即刷新缓存，管理员切完开关无需等待 60 秒。
+  - **写**：`POST /api/admin/config/toggle`（整个 `/api/admin/*` 由 `adminMiddleware` 把守），写库后立即刷新缓存，管理员切完开关无需等待 60 秒。注意：**第一次拨动开关就会在 `configs` 里落一条记录，此后环境变量 `AUDIT_MODE` 永久失效**（库里的值优先），想改回环境变量驱动得手工删掉那条记录。
   - **入口**：小程序「我的」页面在管理员账号下多出一行带 `switch` 的「简洁模式」，整行不挂点击事件以免误触；切换失败时开关靠本地 `ref` 回弹，提示排在 `hideLoading()` 之后（小程序的 loading 与 toast 共用同一个原生浮层）。
+  - **三层拦截**（这一条曾经只有第 1 层，等于只藏图标不关能力——被隐藏的页面仍在包里、路径可以直接打开、接口照样应答，审核人员用真机调试按路径开一次就全都在）：
+    1. **首页宫格**：`pages/index/index.vue` 的 `activeServices` 把七项测算过滤成两项。
+    2. **页面守卫**：`miniprogram/src/utils/auditGuard.js` 的 `blockedByAuditMode()`，被隐藏的 5 个页面各自在 `onMounted` 里 `await` 一次，命中就 toast「该功能当前未开放」并退回上一页（栈里只有自己一层时 `switchTab` 回首页）。它必须先 `await userStore.ensureSystemConfig()`：store 里 `auditMode` 的初值是「按开着处理」，不等配置回来就判会把简洁模式关着时的正常用户也弹出去。初值取自本地存储的上次已知值（`readCachedAuditMode()`），首次启动无缓存则按 `true`——这样审核人员首启失败也是关着的，老用户网络抖一下却不会被整片锁掉（**加载失败 ≠ 没有数据**）。
+    3. **服务端 403**：[middleware/auditGuard.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/middleware/auditGuard.js) 挂在 8 个测算端点上，且**排在 `authMiddleware` 之前**（未登录的审核人员该被同一句话挡住，而不是先被要求登录）。前两层只是给用户一句人话，能不能用由这一层说了算。
+  - **简洁模式下关掉的**：`/bazi`、`/bazi-match`、`/tarot`、`/name`、`/name-match`、`/face-palm`、`/ai-chat`、`/council`。**故意留着的**：`/daily`（首页每日运势）、`/constellation/:constellation`、`/fengshui`、`/records`、`/record/:id`、`/share/:id`——挂上就等于把简洁模式做成一个空壳应用。这份「该挂的一个不少、不该挂的一个不多」由 [tests/audit-mode.test.js](file:///c:/Users/Administrator/fortune-miniprogram/server/tests/audit-mode.test.js) 钉住（直接读 routes 源码断言中间件表，不 `require` 它——那条 require 链会拉进大模型 SDK 的动态 `import`，jest 默认环境起不来）。
+  - **代价**：开着的时候线上真实用户也用不了这 5 项，所以它是「送审期间打开、过审后立刻关掉」的开关，不是长期状态。
 - **意见反馈处理**：[services/adminService.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/services/adminService.js) — 分页拉取用户反馈、回复并置为 `processed`。
 
 ### 6. 定时任务与消息订阅推送

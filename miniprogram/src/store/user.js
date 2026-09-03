@@ -10,8 +10,28 @@ export const useUserStore = defineStore('user', () => {
   const token = ref('')
   // 是否已登录
   const isLoggedIn = computed(() => !!token.value)
-  // 审核模式开关
-  const auditMode = ref(true)
+  // 审核模式开关。
+  // 初值宁可为 true（先当成开着的）：页面守卫要靠它决定放不放行，
+  // 抢跑放开会让简洁模式在配置还没回来的那一瞬间失效，被审核人员正好撞上。
+  // 但也不能一直只靠这个初值——见 ensureSystemConfig 里对上次已知值的处理。
+  const auditMode = ref(readCachedAuditMode())
+
+  // fetchSystemConfig 的在途 promise。App.vue 启动时是 fire-and-forget 调的，
+  // 页面守卫必须能等到同一次请求回来再判断，不能各自再发一遍、也不能不等就判。
+  let systemConfigPromise = null
+  const systemConfigLoaded = ref(false)
+
+  // 上次成功拿到的 auditMode。放本地存储是为了区分「简洁模式开着」和「配置没拉到」：
+  // 首次启动没有缓存 → 按 true 处理（对审核最安全）；
+  // 老用户缓存里是 false → 网络抖一下不会把功能整片锁掉（加载失败 ≠ 没有数据）。
+  function readCachedAuditMode() {
+    try {
+      const cached = uni.getStorageSync('audit_mode')
+      return cached === '' || cached === null || cached === undefined ? true : !!cached
+    } catch (e) {
+      return true
+    }
+  }
 
 
   // 从本地存储初始化
@@ -303,10 +323,29 @@ export const useUserStore = defineStore('user', () => {
       const res = await getSystemConfigApi()
       if (res.code === 0) {
         auditMode.value = !!res.data.auditMode
+        systemConfigLoaded.value = true
+        try {
+          uni.setStorageSync('audit_mode', !!res.data.auditMode)
+        } catch (e) {
+          // 存不下不影响本次判断，下次启动退回「按 true 处理」而已
+        }
       }
     } catch (e) {
       console.error('获取系统配置失败:', e)
     }
+  }
+
+  // 页面守卫用：确保系统配置至少尝试过一次，再让调用方读 auditMode。
+  // 复用 App.vue 那一次的在途请求，失败了也不无限重试——auditMode 会停在
+  // 上次已知值（或首次启动的 true），由调用方按「宁可关着」处理。
+  async function ensureSystemConfig() {
+    if (systemConfigLoaded.value) return
+    if (!systemConfigPromise) {
+      systemConfigPromise = fetchSystemConfig().finally(() => {
+        systemConfigPromise = null
+      })
+    }
+    await systemConfigPromise
   }
 
   return {
@@ -314,6 +353,7 @@ export const useUserStore = defineStore('user', () => {
     token,
     isLoggedIn,
     auditMode,
+    systemConfigLoaded,
     initFromStorage,
     restoreWechatSession,
     login,
@@ -324,7 +364,8 @@ export const useUserStore = defineStore('user', () => {
     updateTheme,
     loginAccount,
     registerAccount,
-    fetchSystemConfig
+    fetchSystemConfig,
+    ensureSystemConfig
   }
 }
 )

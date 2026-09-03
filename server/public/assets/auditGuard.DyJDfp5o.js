@@ -1,0 +1,1 @@
+import{g as e,H as n,T as t,ac as a,O as s}from"./index-DAItfIR-.js";async function i(){const i=e();return await i.ensureSystemConfig(),!!i.auditMode&&(n({title:"该功能当前未开放",icon:"none",duration:2e3}),setTimeout(()=>{t().length>1?a():s({url:"/pages/index/index"})},1500),!0)}export{i as b};

@@ -32,8 +32,10 @@ onLaunch(async () => {
   await userStore.restoreWechatSession()
   // #endif
 
-  // 拉取最新系统配置 (审核开关)
-  userStore.fetchSystemConfig()
+  // 拉取最新系统配置 (审核开关)。
+  // 走 ensureSystemConfig 而不是 fetchSystemConfig：被隐藏页面的守卫要等这一次请求
+  // 回来才能判断放不放行，共用同一个在途 promise，避免各自重复发请求或不等就判。
+  userStore.ensureSystemConfig()
 
   // 初始化推送状态
   pushStore.initFromStorage()

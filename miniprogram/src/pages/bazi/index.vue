@@ -290,6 +290,7 @@ import { ref, computed, onMounted } from 'vue'
 import { calcBaziApi, baziMatchApi } from '@/api/fortune'
 import { updateBirthInfoApi } from '@/api/user'
 import { useUserStore } from '@/store/user'
+import { blockedByAuditMode } from '@/utils/auditGuard'
 import { GAN_WUXING } from './utils/bazi-calc'
 import { calcBaziChart, formatBaziChart } from './utils/bazi-chart'
 
@@ -362,7 +363,9 @@ const localBaziPreview = computed(() => {
   }
 })
 
-onMounted(() => {
+onMounted(async () => {
+  // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
+  if (await blockedByAuditMode()) return
   // 读取单人历史
   const lastInput = uni.getStorageSync('last_bazi_input')
   if (lastInput) {

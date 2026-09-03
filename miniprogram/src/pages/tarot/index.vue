@@ -146,6 +146,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { doTarotDrawApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
+import { blockedByAuditMode } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
 const selectedSpread = ref(null)
@@ -198,7 +199,9 @@ const destroyAudio = () => {
   } catch (e) {}
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
+  if (await blockedByAuditMode()) return
   initAudio()
 })
 

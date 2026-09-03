@@ -146,6 +146,7 @@ import { ref, reactive, nextTick, onMounted, computed } from 'vue'
 import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
 import { BASE_URL, recoverSession } from '@/api/request'
+import { blockedByAuditMode } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
 const themeStore = useThemeStore()
@@ -237,7 +238,9 @@ const initWelcome = () => {
   ]
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
+  if (await blockedByAuditMode()) return
   initWelcome()
 })
 

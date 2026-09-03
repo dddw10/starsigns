@@ -235,6 +235,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { nameAnalysisApi, nameMatchApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
+import { blockedByAuditMode } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
 const activeTab = ref('single')
@@ -269,7 +270,9 @@ const share = () => {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
+  if (await blockedByAuditMode()) return
   // 读取上次单人测算输入
   const lastInput = uni.getStorageSync('last_name_input')
   if (lastInput) {

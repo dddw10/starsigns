@@ -77,9 +77,10 @@
 </template>
 
 <script setup>
-import { getCurrentInstance, ref, nextTick } from 'vue'
+import { getCurrentInstance, ref, nextTick, onMounted } from 'vue'
 import { facePalmAnalysisApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
+import { blockedByAuditMode } from '@/utils/auditGuard'
 import PrivacyPopup from '@/components/PrivacyPopup.vue'
 
 const imageSrc = ref('')
@@ -90,6 +91,11 @@ const instance = getCurrentInstance()
 const CANVAS_ID = 'detectCanvas'
 const DETECT_SIZE = 160
 const userStore = useUserStore()
+
+// 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
+onMounted(async () => {
+  await blockedByAuditMode()
+})
 
 // AI 扫描动效相关变量
 const scanTimer = ref(null)
