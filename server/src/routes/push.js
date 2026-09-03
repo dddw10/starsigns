@@ -23,7 +23,13 @@ router.get('/subscriptions', authMiddleware, pushController.getSubscriptions);
 // 获取推送历史记录
 router.get('/history', authMiddleware, pushController.getPushHistory);
 
-// 手动触发每日运势推送（管理员接口）
-router.post('/trigger-daily', adminMiddleware, strictRateLimiter, pushController.triggerDailyPush);
+// 手动触发每日运势推送（管理员接口）。body 可带 { force: true } 无视当日去重
+router.post(
+  '/trigger-daily',
+  adminMiddleware,
+  strictRateLimiter,
+  pushValidation.triggerDaily,
+  pushController.triggerDailyPush
+);
 
 module.exports = router;

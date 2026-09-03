@@ -94,6 +94,26 @@ const YIJI_BY_ELEMENT = {
   },
 };
 
+// 确定性伪随机：同一个种子永远得到同一个值。
+// 和 generateDimensions 里用的是同一套（Math.sin 取小数部分），不要换成 Math.random()——
+// 运势必须「按用户 + 日期确定性生成」，同一天刷多少次都是同一份。
+const seededRandom = (seed) => {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+};
+
+// 把八字这类字符串折成数值种子，让不同用户可以拿到不同的幸运色/幸运数字，
+// 同一个用户同一天又永远一样
+const hashSeed = (str) => {
+  let hash = 0;
+  for (const ch of String(str || '')) {
+    hash = (hash * 31 + ch.codePointAt(0)) % 100000;
+  }
+  return hash;
+};
+
+const pickIndex = (seed, length) => Math.min(length - 1, Math.floor(seededRandom(seed) * length));
+
 // 根据日期生成每日运势
 function generateDailyFortune(birthInfo, date) {
   const targetDate = date || getBeijingDateString();
@@ -165,8 +185,14 @@ function generateDailyFortune(birthInfo, date) {
   // 生成各维度运势
   const dimensions = generateDimensions(score, dayElement, year + month + day);
 
-  // 生成幸运元素
-  const luckyColorName = LUCKY_COLORS[dayElement][Math.floor(Math.random() * 3)];
+  // 生成幸运元素。
+  // 这里以前是 Math.random()：同一个用户同一天每刷一次就换一个幸运色/幸运数字，
+  // App 侧被 Redis 缓存盖住看不出来，但推送侧直接调算法，于是「推送里的幸运色」
+  // 和「小程序里看到的幸运色」对不上。改成和 generateDimensions 同一套确定性种子。
+  const luckySeed = year * 366 + month * 31 + day + hashSeed(birthInfo && birthInfo.dayGanZhi);
+  const colorList = LUCKY_COLORS[dayElement];
+  const numberList = LUCKY_NUMBERS[dayElement];
+  const luckyColorName = colorList[pickIndex(luckySeed + 7, colorList.length)];
   const LUCKY_COLOR_HEX = {
     '白色': '#7f8c8d',
     '银色': '#95a5a6',
@@ -185,7 +211,7 @@ function generateDailyFortune(birthInfo, date) {
     '咖啡色': '#8b5a2b',
   };
   const luckyColor = LUCKY_COLOR_HEX[luckyColorName] || '#c41e3a';
-  const luckyNumber = LUCKY_NUMBERS[dayElement][Math.floor(Math.random() * 2)];
+  const luckyNumber = numberList[pickIndex(luckySeed + 13, numberList.length)];
 
   // 生成个性化宜忌
   const RELATION_YIJI = {

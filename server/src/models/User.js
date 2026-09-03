@@ -85,17 +85,12 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
 
-    // 推送偏好设置
+    // 推送偏好设置。
+    // 只留 pushEnabled：pushTime 和 pushTypes 从来没有被 triggerDailyPush() 读过
+    // （推送固定 08:30、只发综合运势），留着就是「界面写了但代码不做」。
+    // 能不能收到的权威状态在 PushSubscription.remainingQuota，这里只是用户意愿。
     pushSettings: {
       pushEnabled: { type: Boolean, default: false },
-      pushTime: { type: String, default: '00:00' },
-      pushTypes: {
-        dailyFortune: { type: Boolean, default: true },
-        general: { type: Boolean, default: true },
-        constellation: { type: Boolean, default: false },
-        tarot: { type: Boolean, default: false },
-        bazi: { type: Boolean, default: false },
-      },
     },
 
     // 最后登录时间

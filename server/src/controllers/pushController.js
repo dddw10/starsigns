@@ -92,13 +92,16 @@ exports.getPushHistory = async (req, res, next) => {
   }
 };
 
-// 手动触发每日运势推送
+// 手动触发每日运势推送（管理员）。
+// force=true 无视「今天已经推过」重发一遍——改完字段映射要复验、
+// 早上那轮内容发错了要补推、上线自检都需要它。定时任务不会传。
 exports.triggerDailyPush = async (req, res, next) => {
   try {
-    const result = await pushService.triggerDailyPush();
+    const force = req.body && (req.body.force === true || req.body.force === 'true');
+    const result = await pushService.triggerDailyPush({ force });
     res.json({
       code: 0,
-      message: '推送任务已触发',
+      message: force ? '推送任务已触发（已忽略当日去重）' : '推送任务已触发',
       data: result,
     });
   } catch (error) {

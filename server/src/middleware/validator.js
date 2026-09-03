@@ -147,15 +147,25 @@ const fortuneValidation = {
 
 // 推送相关校验
 const pushValidation = {
-  // 订阅推送
+  // 订阅推送。templateId 必填：客户端从 GET /api/config 取，
+  // 服务端还要拿它和自己配的那个核对（对不上说明客户端拿的是旧配置）
   subscribe: [
     body('templateId').notEmpty().withMessage('模板ID不能为空'),
     handleValidation,
   ],
 
-  // 取消订阅
+  // 取消订阅。templateId **可选**：service 不传就回落到当前配置的模板，
+  // 而且本来就按 userId 限定范围。做成必填会出现「服务端没配模板 → 客户端拿到空串
+  // → 400 模板ID不能为空 → 关不掉」，而用户要的结果（不再收到）其实随时该能达成
   unsubscribe: [
-    body('templateId').notEmpty().withMessage('模板ID不能为空'),
+    body('templateId').optional({ checkFalsy: true }).isString().withMessage('模板ID格式不正确'),
+    handleValidation,
+  ],
+
+  // 管理员手动触发。force 可选，true 表示无视「今天已经推过」重发一遍
+  // （改完字段映射复验 / 补推 / 上线自检）；定时任务不走这条路，去重照旧生效
+  triggerDaily: [
+    body('force').optional().isBoolean().withMessage('force 必须是布尔值'),
     handleValidation,
   ],
 };

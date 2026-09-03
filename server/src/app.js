@@ -56,15 +56,24 @@ app.use('/api/push', pushRoutes);
 app.use('/api/pet', petRoutes);
 app.use('/api/admin', adminRoutes);
 
-// 获取系统配置（简洁模式开关），读取带 60s 进程内缓存
+// 获取系统配置（简洁模式开关 + 推送配置），读取带 60s 进程内缓存。
+// 订阅消息模板 ID 由这里下发：以前前端硬编码一个模板 ID、服务端只认 .env 里的另一个，
+// 两边对不上，而客户端又是「先弹微信授权、后调服务端」，用户那一次宝贵的授权被白烧掉
 app.get('/api/config', async (req, res, next) => {
   try {
     const auditMode = await getAuditMode();
+    const pushService = require('./services/pushService');
     res.json({
       code: 0,
       message: 'success',
       data: {
-        auditMode
+        auditMode,
+        push: {
+          enabled: pushService.isPushConfigured(),
+          templateId: wechatConfig.templates.dailyFortune,
+          pushTimeLabel: pushService.pushTimeLabel,
+          maxQuota: pushService.maxQuota,
+        }
       }
     });
   } catch (error) {
@@ -97,8 +106,11 @@ app.get('*', (req, res) => {
 app.use((err, req, res, next) => {
   const status = err.status || 500;
   console.error('全局错误:', err);
-  // 5xx 不回显 err.message：可能带着上游/驱动细节，只进日志
-  const message = status >= 500
+  // 5xx 不回显 err.message：可能带着上游/驱动细节，只进日志。
+  // 例外是显式标了 err.expose 的：比如「订阅消息尚未完成服务端配置」这类 503,
+  // 它本身就是要给用户看的结论，换成「服务器内部错误」等于把真实原因吞掉
+  const hideDetail = status >= 500 && !err.expose;
+  const message = hideDetail
     ? (process.env.NODE_ENV === 'production' ? '服务器内部错误' : (err.message || '服务器内部错误'))
     : (err.message || '请求有误');
   res.status(status).json({
@@ -127,10 +139,46 @@ function checkLoginConfig() {
   }
 }
 
+// 推送这条链路上「配了一半」是最难查的：模板 ID 填了但字段映射空着，
+// 或者两项都齐了却忘了 ENABLE_SCHEDULER=true——界面上开关能开，就是永远收不到。
+// 所以启动时把缺的那一项直接点名。
+function checkPushConfig() {
+  const pushService = require('./services/pushService');
+  const { PUSH_TIME_LABEL } = require('./services/push/quota');
+  const hasTemplate = Boolean(wechatConfig.templates.dailyFortune);
+  const hasFields = wechatConfig.templates.dailyFortuneFields.length > 0;
+  const schedulerOn = process.env.ENABLE_SCHEDULER === 'true';
+
+  if (!hasTemplate && !hasFields) {
+    console.log('[启动检查] 未配置每日运势订阅消息（WECHAT_TPL_DAILY_FORTUNE），推送功能整体关闭。');
+    return;
+  }
+  if (!hasTemplate) {
+    console.error('[启动检查] 配了 WECHAT_TPL_DAILY_FORTUNE_FIELDS 但缺 WECHAT_TPL_DAILY_FORTUNE，推送不会发送。');
+    return;
+  }
+  if (!hasFields) {
+    console.error('[启动检查] 配了模板 ID 但缺 WECHAT_TPL_DAILY_FORTUNE_FIELDS，data 会是空的，微信按 47003 整条拒收。');
+    return;
+  }
+  if (!pushService.isPushConfigured()) {
+    console.error('[启动检查] 订阅消息模板已配置，但缺微信 AppID / AppSecret，拿不到 access_token。');
+    return;
+  }
+  const declared = wechatConfig.templates.dailyFortuneFields
+    .map((item) => `${item.field}=${item.contentKey}`)
+    .join(' ');
+  console.log(`[启动检查] 每日运势推送已配置：${PUSH_TIME_LABEL}（北京时间），字段 ${declared}`);
+  if (!schedulerOn) {
+    console.warn('[启动检查] 但 ENABLE_SCHEDULER 不是 true，定时任务不会注册（只能靠管理员手动 POST /api/push/trigger-daily）。');
+  }
+}
+
 // 启动服务
 async function bootstrap() {
   try {
     checkLoginConfig();
+    checkPushConfig();
 
     try {
       await connectDB();

@@ -1,79 +1,76 @@
 <template>
   <view class="page-container" :class="themeClass">
     <view class="header">
-      <text class="title">推送设置</text>
-      <text class="subtitle">授权后接收一条专属运势提醒</text>
+      <text class="title">运势提醒</text>
+      <text class="subtitle">每次授权可收到一条，可多次授权累积</text>
     </view>
 
     <view class="setting-section">
       <view class="setting-item">
         <view class="setting-info">
-          <text class="setting-name">订阅下一条运势提醒</text>
-          <text class="setting-desc">微信每次授权仅可发送一条消息</text>
+          <text class="setting-name">每日运势提醒</text>
+          <text class="setting-desc">{{ switchDesc }}</text>
         </view>
-        <switch :checked="pushEnabled" @change="togglePush" color="var(--primary-color, #c41e3a)" />
+        <switch
+          :checked="switchOn"
+          :disabled="!configured || loading"
+          @change="onToggle"
+          color="var(--primary-color, #c41e3a)"
+        />
       </view>
     </view>
 
-    <view class="type-section" v-if="pushEnabled">
-      <text class="section-title">推送类型</text>
-      <view class="type-list">
-        <view class="type-item" v-for="type in pushTypes" :key="type.id">
-          <view class="type-info">
-            <text class="type-icon">{{ type.icon }}</text>
-            <view class="type-detail">
-              <text class="type-name">{{ type.name }}</text>
-              <text class="type-desc">{{ type.desc }}</text>
-            </view>
-          </view>
-          <switch :checked="type.enabled" @change="(e) => toggleType(type.id, e)" color="var(--primary-color, #c41e3a)" />
-        </view>
+    <!-- 加载失败 ≠ 没开启：分开画，并且给一个真的能点的重试 -->
+    <view class="status-card error" v-if="loadError">
+      <text class="status-text">推送状态没能加载出来：{{ loadError }}</text>
+      <view class="retry-btn" @click="reload">
+        <text class="retry-btn-text">重新加载</text>
       </view>
     </view>
 
-    <view class="preview-section" v-if="pushEnabled && enabledTypes.length > 0">
+    <view class="status-card" v-else-if="loading">
+      <text class="status-text">正在读取提醒状态...</text>
+    </view>
+
+    <view class="status-card" v-else-if="!configured">
+      <text class="status-text">服务端还没配置订阅消息模板，暂时无法开启提醒。</text>
+    </view>
+
+    <view class="status-card" v-else-if="pushEnabled">
+      <text class="status-text">还可收到 {{ remainingQuota }} 条提醒，每天 {{ pushTimeLabel }}（北京时间）推送。</text>
+      <text class="status-sub" v-if="expireLabel">有效期至 {{ expireLabel }}</text>
+      <text class="status-sub" v-if="lastPushDate">上次推送：{{ lastPushDate }}</text>
+    </view>
+
+    <view class="status-card" v-else>
+      <text class="status-text">当前没有待发送的提醒。打开上面的开关再授权一次即可。</text>
+    </view>
+
+    <view class="preview-section" v-if="configured">
       <text class="section-title">推送预览</text>
-      <view class="preview-card" v-for="type in enabledTypes" :key="type.id" style="margin-bottom: 24rpx;">
+      <view class="preview-card">
         <view class="preview-header">
-          <text class="preview-title">{{ type.previewTitle }}</text>
+          <text class="preview-title">【今日运势】</text>
           <text class="preview-date">{{ todayDate }}</text>
         </view>
-        
-        <!-- 综合运势模板 -->
-        <view class="preview-body" v-if="type.id === 'general'">
-          <text class="preview-text">宜：签约、出行、学习</text>
-          <text class="preview-text">忌：争吵、熬夜、大额消费</text>
-          <text class="preview-text">综合运势：★★★★☆</text>
-          <text class="preview-text">幸运颜色：红色</text>
-          <text class="preview-text">幸运数字：8</text>
+        <view class="preview-body">
+          <text class="preview-text">宜：聚餐会友 团队建设</text>
+          <text class="preview-text">忌：独自决断 意气之争</text>
+          <text class="preview-text">综合运势：79 分</text>
+          <text class="preview-text">幸运颜色：金色</text>
         </view>
-
-        <!-- 生日密码日运模板 -->
-        <view class="preview-body" v-else-if="type.id === 'bazi'">
-          <text class="preview-text">日主气场：甲木 (喜水木)</text>
-          <text class="preview-text">今日能量：水木相生，宜进取、求财</text>
-          <text class="preview-text">五行增能：宜穿戴青绿色衣饰强化木气</text>
-          <text class="preview-text">吉时良辰：午时 (11:00-13:00) 诸事亨通</text>
-          <text class="preview-text">性格批注：今日官星当令，宜沉稳务实</text>
-        </view>
-
-        <!-- 星座日运模板 -->
-        <view class="preview-body" v-else-if="type.id === 'constellation'">
-          <text class="preview-text">主星相位：双子座 (Gemini)</text>
-          <text class="preview-text">今日表现：★★★★☆ (贵人提携，灵感爆棚)</text>
-          <text class="preview-text">增能建议：宜多倾听，保持逻辑理性</text>
-          <text class="preview-text">幸运物品：天然水晶 / 浅蓝色服饰</text>
-          <text class="preview-text">心境提醒：克制浮躁，细水方能长流</text>
-        </view>
+        <text class="preview-note">实际字段取决于微信后台模板的参数配置</text>
       </view>
     </view>
 
     <view class="info-section">
       <text class="info-title">推送说明</text>
       <text class="info-text">1. 需要在微信弹窗中明确同意订阅</text>
-      <text class="info-text">2. 每次同意只会收到一条消息，发送后需再次授权</text>
-      <text class="info-text">3. 可随时在此处取消尚未发送的提醒</text>
-      <text class="info-text">4. 推送内容仅供娱乐参考</text>
+      <text class="info-text">2. 微信规定每次同意只能收到一条，勾选弹窗里的「总是保持以上选择」可以免去重复弹窗</text>
+      <text class="info-text">3. 想连续几天都收到，就多授权几次，最多累积 {{ maxQuota }} 条</text>
+      <text class="info-text">4. 推送时间固定为每天 {{ pushTimeLabel }}（北京时间），内容与小程序里的每日运势一致</text>
+      <text class="info-text">5. 需要先填写生辰，否则没有可推送的运势</text>
+      <text class="info-text">6. 推送内容仅供娱乐参考</text>
     </view>
 
     <view class="disclaimer">
@@ -83,74 +80,77 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { usePushStore } from '@/store/push'
 
 const pushStore = usePushStore()
 
 const pushEnabled = computed(() => pushStore.pushEnabled)
-const pushTime = computed(() => pushStore.pushTime)
+const remainingQuota = computed(() => pushStore.remainingQuota)
+const maxQuota = computed(() => pushStore.maxQuota)
+const pushTimeLabel = computed(() => pushStore.pushTimeLabel)
+const configured = computed(() => pushStore.configured)
+const loading = computed(() => pushStore.loading)
+const loadError = computed(() => pushStore.loadError)
+const lastPushDate = computed(() => pushStore.lastPushDate)
+
+// switch 的 checked 必须绑一个本地 ref：小程序的 switch 点下去就自己变了，
+// 失败时只有改这个本地值才能把它弹回去（绑 computed 是弹不回来的）
+const switchOn = ref(false)
+watch(pushEnabled, (val) => { switchOn.value = val }, { immediate: true })
+
+const switchDesc = computed(() => {
+  if (!configured.value) return '服务端尚未配置，暂不可用'
+  if (pushEnabled.value) return `每天 ${pushTimeLabel.value} 推送，还可收到 ${remainingQuota.value} 条`
+  return `开启后每天 ${pushTimeLabel.value} 推送一条`
+})
+
+const expireLabel = computed(() => {
+  if (!pushStore.expireAt) return ''
+  const text = String(pushStore.expireAt)
+  return text.length >= 10 ? text.slice(0, 10) : text
+})
 
 const todayDate = computed(() => {
   const d = new Date()
   return `${d.getMonth() + 1}月${d.getDate()}日`
 })
 
-const pushTypes = ref([
-  { id: 'general', name: '综合运势', desc: '今日宜忌、运势评分', icon: '🌟', enabled: true },
-  { id: 'bazi', name: '生日密码日运', desc: '基于生辰的五行分析', icon: '📿', enabled: false },
-  { id: 'constellation', name: '星座日运', desc: '基于星座的运势', icon: '⭐', enabled: false }
-])
-
-const togglePush = async (e) => {
-  if (e.detail.value) {
-    const subscribed = await pushStore.togglePush(true)
-    uni.showToast({ title: subscribed ? '已订阅下一条提醒' : '未完成订阅', icon: 'none' })
-  } else {
-    await pushStore.togglePush(false)
-    uni.showToast({ title: '已关闭推送', icon: 'none' })
+const onToggle = async (e) => {
+  const next = e.detail.value
+  // showLoading 和 showToast 共用同一个原生浮层：提示必须排在 hideLoading 之后
+  let toast = null
+  uni.showLoading({ title: next ? '订阅中...' : '关闭中...' })
+  try {
+    const result = await pushStore.togglePush(next)
+    if (result.ok) {
+      switchOn.value = next
+      toast = { title: result.reason || '已保存', icon: 'none' }
+    } else {
+      // 失败要回弹，否则屏幕上写着「已开启」而实际没有
+      switchOn.value = pushStore.pushEnabled
+      toast = { title: result.reason || '操作失败', icon: 'none' }
+    }
+  } catch (err) {
+    switchOn.value = pushStore.pushEnabled
+    toast = { title: err?.message || '操作失败，请稍后重试', icon: 'none' }
+  } finally {
+    uni.hideLoading()
   }
+  if (toast) uni.showToast(toast)
 }
 
-const toggleType = (typeId, e) => {
-  const type = pushTypes.value.find(t => t.id === typeId)
-  if (type) {
-    type.enabled = e.detail.value
-    // 同步到 Pinia store
-    let storeKey = ''
-    if (typeId === 'general') storeKey = 'dailyFortune'
-    else if (typeId === 'bazi') storeKey = 'bazi'
-    else if (typeId === 'constellation') storeKey = 'constellation'
-    
-    if (storeKey) {
-      pushStore.updatePushType(storeKey, e.detail.value)
-    }
-  }
-}
-
-const enabledTypes = computed(() => {
-  return pushTypes.value.filter(t => t.enabled).map(t => {
-    let previewTitle = '【今日运势】'
-    if (t.id === 'bazi') previewTitle = '【生日密码日运】'
-    if (t.id === 'constellation') previewTitle = '【星座日运】'
-    return {
-      ...t,
-      previewTitle
-    }
-  })
-})
+const reload = () => pushStore.refresh()
 
 onMounted(() => {
-  const storeTypes = pushStore.pushTypes
-  pushTypes.value.forEach(t => {
-    if (t.id === 'general') {
-      t.enabled = storeTypes.dailyFortune ?? true
-    } else if (t.id === 'bazi') {
-      t.enabled = storeTypes.bazi ?? false
-    } else if (t.id === 'constellation') {
-      t.enabled = storeTypes.constellation ?? false
-    }
-  })
+  pushStore.initFromStorage()
+  pushStore.refresh()
+})
+
+// 从微信「设置-订阅消息」改过授权、或推送已经发出之后回到这一页，状态要跟着变
+onShow(() => {
+  pushStore.refresh()
 })
 </script>
 
@@ -191,11 +191,6 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 28rpx 24rpx;
-  border-bottom: 1rpx solid var(--border-color, #f5f5f5);
-}
-
-.setting-item:last-child {
-  border-bottom: none;
 }
 
 .setting-name {
@@ -211,16 +206,42 @@ onMounted(() => {
   display: block;
 }
 
-.setting-value {
-  font-size: 28rpx;
-  color: var(--primary-color, #c41e3a);
-}
-
-.type-section {
+.status-card {
   background: var(--card-bg, #fff);
   border-radius: 16rpx;
   padding: 24rpx;
   margin-bottom: 24rpx;
+}
+
+.status-card.error {
+  border-left: 6rpx solid #e67e22;
+}
+
+.status-text {
+  font-size: 26rpx;
+  color: var(--text-primary, #333);
+  line-height: 1.7;
+  display: block;
+}
+
+.status-sub {
+  font-size: 24rpx;
+  color: var(--text-secondary, #999);
+  margin-top: 8rpx;
+  display: block;
+}
+
+.retry-btn {
+  display: inline-block;
+  margin-top: 20rpx;
+  padding: 12rpx 40rpx;
+  border-radius: 40rpx;
+  background: var(--primary-color, #c41e3a);
+}
+
+.retry-btn-text {
+  font-size: 26rpx;
+  color: #fff;
 }
 
 .section-title {
@@ -228,41 +249,6 @@ onMounted(() => {
   font-weight: bold;
   color: var(--text-primary, #333);
   margin-bottom: 20rpx;
-  display: block;
-}
-
-.type-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20rpx 0;
-  border-bottom: 1rpx solid var(--border-color, #f5f5f5);
-}
-
-.type-item:last-child {
-  border-bottom: none;
-}
-
-.type-info {
-  display: flex;
-  align-items: center;
-}
-
-.type-icon {
-  font-size: 40rpx;
-  margin-right: 16rpx;
-}
-
-.type-name {
-  font-size: 28rpx;
-  color: var(--text-primary, #333);
-  display: block;
-}
-
-.type-desc {
-  font-size: 22rpx;
-  color: var(--text-secondary, #999);
-  margin-top: 4rpx;
   display: block;
 }
 
@@ -303,6 +289,13 @@ onMounted(() => {
   display: block;
 }
 
+.preview-note {
+  font-size: 22rpx;
+  color: var(--text-secondary, #999);
+  margin-top: 12rpx;
+  display: block;
+}
+
 .info-section {
   background: var(--card-bg, #fff);
   border-radius: 16rpx;
@@ -332,3 +325,4 @@ onMounted(() => {
   color: var(--text-secondary, #999);
 }
 </style>
+

@@ -27,6 +27,44 @@ describe('同一天同一个人结果稳定', () => {
     expect(a.overall).toBe(b.overall);
   });
 
+  // 幸运色和幸运数字以前用 Math.random()。App 侧被 Redis 缓存盖住看不出来，
+  // 推送侧绕过缓存直调算法，于是「推送里的幸运色」和「小程序里的幸运色」是两个值。
+  test('幸运色与幸运数字同日可重复（以前是 Math.random()）', () => {
+    const a = generateDailyFortune(USER, '2026-09-02');
+    const b = generateDailyFortune(USER, '2026-09-02');
+    expect(a.luckyColorName).toBe(b.luckyColorName);
+    expect(a.luckyColor).toBe(b.luckyColor);
+    expect(a.luckyNumber).toBe(b.luckyNumber);
+  });
+
+  test('幸运色与幸运数字换天会变（不是写死的常数）', () => {
+    const days = ['2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07'];
+    const colors = new Set(days.map((d) => generateDailyFortune(USER, d).luckyColorName));
+    const numbers = new Set(days.map((d) => generateDailyFortune(USER, d).luckyNumber));
+    expect(colors.size).toBeGreaterThan(1);
+    expect(numbers.size).toBeGreaterThan(1);
+  });
+
+  test('同一天不同的人不会都拿到同一个幸运色（种子里带日柱）', () => {
+    const ganZhi = ['丙寅', '辛未', '甲子', '戊辰', '壬申', '乙亥', '庚午', '癸酉'];
+    const pairs = new Set(
+      ganZhi.map((dayGanZhi) => {
+        const f = generateDailyFortune({ ...USER, dayGanZhi }, '2026-09-02');
+        return `${f.luckyColorName}/${f.luckyNumber}`;
+      })
+    );
+    // 单个用户之间撞车是允许的（颜色和数字都是小词表），
+    // 但整体必须散开——否则说明种子里根本没带用户信息
+    expect(pairs.size).toBeGreaterThan(1);
+  });
+
+  test('游客（没有八字信息）也能拿到确定性的幸运色与数字', () => {
+    const a = generateDailyFortune(null, '2026-09-02');
+    const b = generateDailyFortune(null, '2026-09-02');
+    expect(a.luckyColorName).toBe(b.luckyColorName);
+    expect(a.luckyNumber).toBe(b.luckyNumber);
+  });
+
   test('换一天分数会变（不是写死的常数）', () => {
     const days = ['2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06'];
     const scores = new Set(days.map((d) => generateDailyFortune(USER, d).score));
