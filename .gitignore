@@ -25,6 +25,7 @@ server/server-dev.log
 # Deploy bundles & zips
 *.zip
 server-deploy.zip
+server-deploy.tar.gz
 
 # System/IDE files
 .DS_Store

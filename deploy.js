@@ -19,7 +19,7 @@ try {
   // 2. 上传部署包
   console.log('\n[2/3] 正在上传部署包到云服务器...');
   console.log('提示: 请根据提示输入 root 用户的登录密码（如果配置了免密 Key，则会自动登录）。\n');
-  const scpResult = spawnSync('scp', ['server-deploy.zip', `${deployUser}@${deployHost}:/opt/fortune-server/`], { stdio: 'inherit' });
+  const scpResult = spawnSync('scp', ['server-deploy.tar.gz', `${deployUser}@${deployHost}:/opt/fortune-server/`], { stdio: 'inherit' });
   if (scpResult.status !== 0) {
     throw new Error('上传部署包失败！');
   }
@@ -29,13 +29,17 @@ try {
   console.log('提示: 请再次输入 root 密码以运行远端指令。\n');
   // compose 文件里的 ${MONGO_ROOT_PASSWORD}/${REDIS_PASSWORD} 不会从 env_file 取值，
   // 必须显式 --env-file，否则会当成空字符串（compose 那边已加 :? 会直接报错退出）。
-  // .env.production 是服务器上手工维护的，打包时被排除，所以先确认它在。
+  // .env.production 与 docker-compose.prod.yml 都是服务器上手工维护的，打包时被排除
+  // （原因见 build-and-pack.js 里的注释），所以先确认它们都在。
   const composeArgs = '--env-file .env.production -f docker-compose.prod.yml';
   const sshCmd = [
     'cd /opt/fortune-server',
-    'if [ ! -f .env.production ]; then echo "缺少 /opt/fortune-server/.env.production，请参考 .env.production.example 创建后重试"; exit 1; fi',
+    'if [ ! -f .env.production ]; then echo "缺少 /opt/fortune-server/.env.production，请参考仓库里的 server/.env.production.example 创建后重试"; exit 1; fi',
+    'if [ ! -f docker-compose.prod.yml ]; then echo "缺少 /opt/fortune-server/docker-compose.prod.yml，它由服务器自己维护、不在部署包里，请先确认基础设施配置存在"; exit 1; fi',
     'if [ -d src ]; then rm -rf src_bak; mv src src_bak; fi',
-    'unzip -o server-deploy.zip',
+    'if [ -d public ]; then rm -rf public_bak; mv public public_bak; fi',
+    // 产物是 gzip tar 而不是 zip（见 build-and-pack.js 里的注释），所以这里必须用 tar 而不是 unzip
+    'tar -xzf server-deploy.tar.gz',
     `docker compose ${composeArgs} up -d --build`,
     `docker compose ${composeArgs} ps`
   ].join(' && ');

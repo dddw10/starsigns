@@ -21,9 +21,9 @@ port = int(os.environ.get("DEPLOY_PORT", "22"))
 username = os.environ.get("DEPLOY_USER")
 password = os.environ.get("DEPLOY_PASSWORD")
 key_filename = os.environ.get("DEPLOY_KEY_PATH")
-local_zip = "server-deploy.zip"
+local_zip = "server-deploy.tar.gz"
 remote_dir = "/opt/fortune-server"
-remote_zip = f"{remote_dir}/server-deploy.zip"
+remote_zip = f"{remote_dir}/{local_zip}"
 
 if not host or not username:
     raise RuntimeError("Set DEPLOY_HOST and DEPLOY_USER before deploying.")
@@ -79,13 +79,27 @@ try:
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(**connect_options)
     
+    # compose 文件里的 ${MONGO_ROOT_PASSWORD}/${REDIS_PASSWORD} 不会从 env_file 取值，
+    # 必须显式 --env-file，否则会当成空字符串（compose 那边写了 :? 会直接报错退出）。
+    # deploy.js 一直是这么做的，这里以前漏了——走 Python 这条路部署会卡在 compose 阶段。
+    # .env.production 与 docker-compose.prod.yml 都是服务器上手工维护的、打包时被排除
+    # （原因见 build-and-pack.js 里的注释），所以先确认它们都在。
+    compose_args = "--env-file .env.production -f docker-compose.prod.yml"
     ssh_cmd = (
         f"cd {remote_dir} && "
+        'if [ ! -f .env.production ]; then '
+        'echo "缺少 /opt/fortune-server/.env.production，'
+        '请参考仓库里的 server/.env.production.example 创建后重试"; exit 1; fi && '
+        'if [ ! -f docker-compose.prod.yml ]; then '
+        'echo "缺少 /opt/fortune-server/docker-compose.prod.yml，'
+        '它由服务器自己维护、不在部署包里，请先确认基础设施配置存在"; exit 1; fi && '
         "if [ -d src ]; then rm -rf src_bak; mv src src_bak; fi && "
-        "unzip -o server-deploy.zip && "
-        "docker compose -f docker-compose.prod.yml build --no-cache && "
-        "docker compose -f docker-compose.prod.yml up -d && "
-        "docker compose -f docker-compose.prod.yml ps"
+        "if [ -d public ]; then rm -rf public_bak; mv public public_bak; fi && "
+        # 产物是 gzip tar 而不是 zip（见 build-and-pack.js 里的注释），必须用 tar 而不是 unzip
+        f"tar -xzf {local_zip} && "
+        f"docker compose {compose_args} build --no-cache && "
+        f"docker compose {compose_args} up -d && "
+        f"docker compose {compose_args} ps"
     )
     
     print(f"运行远端指令: {ssh_cmd}")
