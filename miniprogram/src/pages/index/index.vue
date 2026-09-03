@@ -52,10 +52,12 @@
         </view>
       </view>
 
-      <!-- 快捷推送开关，嵌入卡片底部 -->
-      <view class="push-toggle-row" @click.stop>
-        <text class="push-toggle-label">🔔 每日 00:00 灵感推送提醒</text>
-        <switch :checked="pushEnabled" @change="togglePush" color="var(--primary-color, #c41e3a)" style="transform: scale(0.8);" />
+      <!-- 快捷推送开关，嵌入卡片底部。
+           置灰的 switch 不会派发 change，点下去屏幕上什么都不会发生，
+           所以这一行自己接住那次点击、把「为什么按不动」说出来 -->
+      <view class="push-toggle-row" @click.stop="onPushRowTap">
+        <text class="push-toggle-label">{{ pushToggleLabel }}</text>
+        <switch :checked="pushSwitchOn" :disabled="!pushConfigured" @change="togglePush" color="var(--primary-color, #c41e3a)" style="transform: scale(0.8);" />
       </view>
     </view>
 
@@ -78,12 +80,14 @@
       </view>
     </view>
 
-    <!-- 订阅提醒横幅 (当用户未开启推送且已设置生日时显示) -->
-    <view class="push-banner" v-if="!pushEnabled && hasBirthInfo" @click="goToPushSettings">
+    <!-- 订阅提醒横幅：授权次数用完（含从未授权）时出现。
+         微信一次性订阅是「授权一次发一条」，用完就必须重新授权，
+         这条横幅是重新授权的入口，所以它必须跟着服务端的 remainingQuota 回来 -->
+    <view class="push-banner" v-if="showPushBanner" @click="goToPushSettings">
       <text class="push-icon">🔔</text>
       <view class="push-info">
-        <text class="push-title">每日灵感推送已关闭</text>
-        <text class="push-desc">点此进入设置，开启每日专属福运推送</text>
+        <text class="push-title">{{ pushBannerTitle }}</text>
+        <text class="push-desc">{{ pushBannerDesc }}</text>
       </view>
       <text class="push-arrow">›</text>
     </view>
@@ -195,7 +199,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { onShow, onPullDownRefresh } from '@dcloudio/uni-app'
 import { useThemeStore } from '@/store/theme'
 import { usePushStore } from '@/store/push'
@@ -429,7 +433,10 @@ const onAssistantEnd = () => {
 }
 
 onShow(() => {
+  // 推送发出后配额就少一条，从微信「设置-订阅消息」改过授权也一样：
+  // 回到首页必须重新拉一次，否则横幅和「剩 N 次」都是旧的
   if (isLoggedIn.value) {
+    pushStore.refresh()
     loadPetStatus()
     // 进入时若未展示，则以气泡形式展开，并开启折叠定时
     if (!showAssistantBubble.value) {
@@ -441,7 +448,44 @@ onShow(() => {
   }
 })
 
+// 推送状态一律以服务端为准：pushEnabled 只是「还有没有配额」的结论，
+// 不再是 localStorage 里那个永远为 true 的布尔值
 const pushEnabled = computed(() => pushStore.pushEnabled)
+const pushConfigured = computed(() => pushStore.configured)
+const pushRemainingQuota = computed(() => pushStore.remainingQuota)
+const pushTimeLabel = computed(() => pushStore.pushTimeLabel)
+
+// switch 的 checked 必须绑本地 ref：小程序的 switch 点下去就自己变了，
+// 失败时只有改这个本地值才能把它弹回去
+const pushSwitchOn = ref(false)
+watch(pushEnabled, (val) => { pushSwitchOn.value = val }, { immediate: true })
+
+const pushToggleLabel = computed(() => {
+  if (!pushConfigured.value) return '🔔 每日运势提醒（暂未开放）'
+  if (pushRemainingQuota.value > 0) {
+    return `🔔 每日 ${pushTimeLabel.value} 运势提醒（剩 ${pushRemainingQuota.value} 次）`
+  }
+  return `🔔 每日 ${pushTimeLabel.value} 运势提醒`
+})
+
+const showPushBanner = computed(
+  () => pushConfigured.value && hasBirthInfo.value && pushRemainingQuota.value === 0
+)
+
+// 「已暂停」和「未开启」是两件事：授权用完或过期后 pushEnabled 变回 false，
+// 但用户其实是想收的。分开说才是实话
+const pushBannerTitle = computed(() =>
+  pushStore.intended ? '每日提醒已暂停' : '每日运势提醒未开启'
+)
+
+const pushBannerDesc = computed(() => {
+  if (!pushStore.intended) {
+    return `点此开启，每天 ${pushTimeLabel.value}（北京时间）收到当日运势`
+  }
+  return pushStore.lastPushDate
+    ? `上次推送 ${pushStore.lastPushDate}，点此再授权一次继续接收`
+    : `授权次数已用完，点此再授权一次恢复提醒`
+})
 
 const agreementChecked = ref(false)
 
@@ -668,23 +712,45 @@ const handleCheckIn = async () => {
   if (toast) uni.showToast(toast)
 }
 
-// 开启或关闭每日运势提醒
+// 开启或关闭每日运势提醒。togglePush 返回 { ok, reason }，
+// 失败必须把 switch 弹回去——否则屏幕上写着「已开启」而实际没有
 const togglePush = async (e) => {
   const value = e.detail.value
-  uni.showLoading({ title: '同步中...' })
+  // showLoading 和 showToast 共用同一个原生浮层：提示必须排在 hideLoading 之后
   let toast = null
+  uni.showLoading({ title: value ? '订阅中...' : '关闭中...' })
   try {
-    await pushStore.togglePush(value)
-    toast = {
-      title: pushStore.pushEnabled ? '已成功开启每日提醒' : '已关闭提醒',
-      icon: 'none'
+    const result = await pushStore.togglePush(value)
+    if (result.ok) {
+      pushSwitchOn.value = value
+      toast = { title: result.reason || '已保存', icon: 'none' }
+    } else {
+      pushSwitchOn.value = pushStore.pushEnabled
+      toast = { title: result.reason || '操作失败', icon: 'none' }
     }
   } catch (err) {
-    toast = { title: '设置推送失败，请重试', icon: 'none' }
+    pushSwitchOn.value = pushStore.pushEnabled
+    toast = { title: err?.message || '设置推送失败，请重试', icon: 'none' }
   } finally {
     uni.hideLoading()
   }
   if (toast) uni.showToast(toast)
+}
+
+// 开关置灰时点上去毫无反应——那就等于屏幕上摆着一个按不动的按钮。
+// 这里把原因说出来，并顺手重拉一次配置：上一次很可能只是网络抖动
+// （启动早期会出现「读取推送配置失败: 网络请求失败」，之后 configured 一直是 false）。
+// 只在置灰时才提示，配齐后这一行不抢 switch 自己的 change 事件。
+const onPushRowTap = () => {
+  if (pushConfigured.value) return
+  uni.showToast({
+    title: pushStore.loadError
+      ? `推送状态没能加载出来：${pushStore.loadError}`
+      : '服务端还没配好订阅消息模板，暂时无法开启',
+    icon: 'none',
+    duration: 2500
+  })
+  pushStore.refresh()
 }
 
 // 弹出快捷设置抽屉
@@ -802,6 +868,14 @@ onPullDownRefresh(async () => {
 
 onMounted(() => {
   loadDailyFortune()
+  // 本地快照只为首屏先画点东西，权威状态靠 refresh() 从服务端拿
+  pushStore.initFromStorage()
+  // 模板 ID 必须在用户点开关**之前**就在手上：
+  // wx.requestSubscribeMessage 要求由用户点击触发，中间夹一次网络请求容易被判失败
+  pushStore.ensureConfig()
+  if (isLoggedIn.value) {
+    pushStore.refresh()
+  }
   // 计算神兽初始右下角位置 (避开底部 tabbar 且支持拖拽)
   try {
     const { windowWidth, windowHeight } = getWindowSize()

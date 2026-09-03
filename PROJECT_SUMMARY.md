@@ -101,12 +101,29 @@
 - **意见反馈处理**：[services/adminService.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/services/adminService.js) — 分页拉取用户反馈、回复并置为 `processed`。
 
 ### 6. 定时任务与消息订阅推送
-- **任务调度器**：[scheduler/pushScheduler.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/scheduler/pushScheduler.js)（需 `ENABLE_SCHEDULER=true` 才注册，默认不跑）
-- **微信模板消息服务**：[services/pushService.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/services/pushService.js)
-- **核心定时逻辑**：
-  - `0 12 * * *`：向已授权但当天尚未发送的用户，定向下发个性化的“每日运势”卡片（微信一次性订阅消息，一次授权只能发一条）。
-  - `0 12 * * *`：核验并把 `expireAt` 已过的订阅记录置为 `expired`。
-  - 两个任务落在同一分钟（推送先注册、先执行），过期清理紧随其后。当天才到期的订阅有可能先被用掉再被标记过期——目前不影响正确性，但如果以后要严格区分，应把清理挪到推送之前。
+
+这条链路整体重做过一次。之前的状态是「代码在、也确实在调真实微信接口，但一条也发不出去」，五处阻断每一处单独都足以致命：前后端各写一份模板 ID 且对不上（而客户端**先弹微信授权、后调服务端**，用户那一次宝贵的授权被白烧掉、订阅记录一条都没落库）；`.env.production.example` 里 `ENABLE_SCHEDULER=false`；cron 不传 `tz`，容器 UTC 下落在北京时间 20:00；`data` 一次塞 30+ 个字段必被微信按 `47003` 整条拒收；PM2 cluster 下 N 个 worker 各注册各推。
+
+- **任务调度器**：[scheduler/pushScheduler.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/scheduler/pushScheduler.js)（需 `ENABLE_SCHEDULER=true` 才注册）
+- **推送服务**：[services/pushService.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/services/pushService.js)
+- **配额状态机**：[services/push/quota.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/services/push/quota.js)（纯函数，推送时间/cron/时区与去重判定的唯一来源）
+- **模板字段映射**：[services/push/templateMapping.js](file:///c:/Users/Administrator/fortune-miniprogram/server/src/services/push/templateMapping.js)（纯函数）
+
+**订阅模型：授权次数计数。** 微信一次性订阅消息「授权一次只能发一条」，但允许反复授权累积。所以 `PushSubscription.remainingQuota` 每次授权 `+1`（封顶 7）、每**成功**发出一条 `-1`；发送失败不扣（一次网络抖动不该白吃一次授权），`43101`（用户已在微信里拒收）直接清零。归零后小程序首页横幅重新出现，这是重新授权的入口——旧实现里客户端的 `pushEnabled` 是 localStorage 里永远为 `true` 的布尔值，服务端发完却把订阅置 `inactive`，于是横幅再也不出现，用户既看不出已经用完也找不到入口。现在权威状态一律由 `GET /api/push/settings` 从 `PushSubscription` 算出。
+
+**模板配置驱动。** 模板 ID 只有服务端一个来源，经 `GET /api/config` 的 `push.templateId` 下发；字段映射写在 `WECHAT_TPL_DAILY_FORTUNE_FIELDS`（`微信字段名:内容键`，逗号分隔）。`buildTemplateData()` **只输出声明过的键**——微信要求 `data` 与模板参数严格一致，多一个就是 `47003`。各字段还有类型限制（`thing` ≤20 字符、`phrase` ≤5 个**汉字**、`character_string` ≤32 且不收中文、`number` 纯数字），写错字段名 / 内容键 / 字段重复 / 内容键与类型不匹配都在**启动时**抛错，不等推送那一刻被拒。字段名是「类型 + 序号」，只能照模板详情页的「详细内容」抄（那里原样写着 `{{thing1.DATA}}`）——本项目在用的「今日运势提醒」（模版编号 71514）三个关键词是运势关键词 / 运势简述 / 日期，而「日期」被声明成 `time3` 而不是 `date3`，光看关键词列表分辨不出类型，按语义猜就是 `47003`。没配齐时 `push.enabled` 为 `false`，客户端开关置灰并说明原因、**不弹**授权窗；`POST /api/push/subscribe` 返回 503 且带 `err.expose`，让这句文案穿过「5xx 一律替换成服务器内部错误」的全局规则。
+
+**内容要为 20 个字符专门写。** `thing` 的 20 字符是微信的硬上限，没有更长的中文字段类型可选（`character_string` 虽然 32 但不收中文），塞不进的只能截断。所以 `summary`（`分数 + 整段运势解读`）进 `thing` 会变成「79分 今日金气适中，工作顺利，人际关…」——预算全花在铺垫上，结论一个字都没露出来。线上因此改用 `brief`：`分数 + 最该做的一件事 + 最该避的一件事`，即 `79分 宜聚餐会友 忌独自决断`（15 字符，宜忌词条都是 4 字，三位分数下最长 16 字符，永远不触发截断）。整段解读不塞进卡片，用户点卡片底部的「进入小程序查看」看全文——这也是订阅消息本来的用法。`tests/push.test.js` 同时钉住了 `brief` 不带省略号和 `summary` 一定被截断两条，换回去会立刻变红。
+
+**核心定时逻辑：**
+  - 每日 **08:30（北京时间）**，`{ rule: '30 8 * * *', tz: 'Asia/Shanghai' }`。`tz` 必须显式给，容器里进程时区通常是 UTC。首页标签、设置页文案都从 `pushTimeLabel` 取，不再出现「cron 20:00 / 界面写 00:00 / 用户存的时间没人读」三个时间互不相干。
+  - 清理与推送**合成一个任务、顺序执行**：先把 `expireAt` 已过的订阅置 `expired`，再推送。原先两个任务落在同一分钟，当天才到期的订阅可能先被用掉一次配额再被标记过期。
+  - **cluster 单实例守卫** + **Redis 日锁**：只有 `NODE_APP_INSTANCE` 为 `0`（或未注入）的实例注册；多机部署再靠 `SET push:daily:<北京日期> NX EX 3600` 决出唯一一台。微信 `access_token` 按 AppID 全局唯一，并发去取会互相顶掉，所以它也走 Redis 共享缓存。
+  - **同日去重**：`lastPushDate === getBeijingDateString()` 的记录跳过，管理员手动 `POST /api/push/trigger-daily` 重复调用不会重复发、不会重复扣配额。统计里的 `skipped` 拆成 `skippedNoBirthInfo` / `skippedAlreadyPushed` 两个原因——合成一个数字时「没收到」既可能是缺生辰也可能是当日已推，分辨不出来。
+  - **`force` 只给手动接口**：当天推过之后 `lastPushDate` 已是今天，此后同一天的触发（包括用户重新授权后）一律被去重挡住。这对定时任务是对的，但会让手动接口在当天彻底失效，而它整个存在的理由就是自检和补推。所以 `POST /api/push/trigger-daily` 收 `{ force: true }`，由 `shouldSkipDuplicate()` 判定；它**只**放开日期这一条，配额照旧要求 `> 0`、照旧只有成功才扣、`43101` 照旧清零。定时任务永远不传，cluster 多 worker 的幂等兜底不受影响。用户重新授权也**不**重置 `lastPushDate`：配额会攒上，但要等第二天 08:30——同一天的运势不重复发。
+  - **推送内容与 App 完全一致**：走 `fortuneService.getDailyFortune(userId, date)`，而不是直调 `generateDailyFortune(user.birthInfo)`——`birthInfo` 里没有 `dayMaster`，少了它分数不加减五行、`relation` 恒为 `companion`，推送里的分数和宜忌和小程序里不是一份。同时 `daily-fortune` 的幸运色与幸运数字已从 `Math.random()` 改为按「用户日柱 + 日期」的确定性种子（App 侧被 Redis 缓存盖住看不出来，推送侧绕过缓存直调算法，两边必然对不上）。
+
+**删掉的死代码**（界面写了但代码不做）：`pushTime` / `setPushTime`（服务端认真做了 HH:mm 校验，推送逻辑从不读它）、「生日密码日运」「星座日运」两个只写库的类型开关、以及前端硬编码的模板 ID。
 
 ### 7. 登录与会话（"用户数据不丢"的关键路径）
 
@@ -142,7 +159,7 @@
 
 ## 三、 工程化构建与部署
 
-1. **回归测试**：[server/tests](file:///c:/Users/Administrator/fortune-miniprogram/server/tests) — `npm test` 跑 Jest（纯函数，不连数据库、不发网络请求、不消耗大模型额度）。覆盖四柱基准值、立春换年柱、时辰解析的接受/拒绝表、农历折算、前后端排盘一致性、北京时间边界（15:59:59Z / 16:00:00Z）、每日运势确定性与相冲扣分、管理员白名单归一化、会谈八字串。**这些期望值是“钉子”**：改动排盘取法时如果红了，说明用户拿到的四柱变了，必须先想清楚是不是真的要变。
+1. **回归测试**：[server/tests](file:///c:/Users/Administrator/fortune-miniprogram/server/tests) — `npm test` 跑 Jest（纯函数，不连数据库、不发网络请求、不消耗大模型额度）。覆盖四柱基准值、立春换年柱、时辰解析的接受/拒绝表、农历折算、前后端排盘一致性、北京时间边界（15:59:59Z / 16:00:00Z）、每日运势确定性与相冲扣分、管理员白名单归一化、会谈八字串，以及推送的字段映射与配额状态机（`data` 只输出声明过的键、各字段类型的裁剪、`brief` 不截断 / `summary` 必截断、授权累加封顶、成功才扣配额、`43101` 清零、同日去重与 `force`）。**这些期望值是“钉子”**：改动排盘取法时如果红了，说明用户拿到的四柱变了，必须先想清楚是不是真的要变。
 2. **一键打包脚本**：[build-and-pack.js](file:///c:/Users/Administrator/fortune-miniprogram/build-and-pack.js) — 自动调用 `npm run build:mp-weixin` 编译前端 uni-app，打包生成的静态目录以及服务配置项，将其整理压缩成一键发布部署的 `server-deploy.zip`。
 3. **多机自动化部署**：[deploy.js](file:///c:/Users/Administrator/fortune-miniprogram/deploy.js) 及 [deploy_helper.py](file:///c:/Users/Administrator/fortune-miniprogram/deploy_helper.py) — 脚本集成了 SSH、SFTP 连接，可自动将包上传到生产服务器并解压重启 PM2，实现极简的 CI/CD 流程。
 4. **Docker 容器化**：配置 [docker-compose.yml](file:///c:/Users/Administrator/fortune-miniprogram/docker-compose.yml) 快速拉起后端应用、MongoDB 与 Redis，实现测试与环境的高一致性。注意 compose 文件里的 `${VAR}` **不会**从 `env_file` 取值，部署时必须显式带上 `--env-file`。

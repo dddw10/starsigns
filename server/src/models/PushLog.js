@@ -22,10 +22,10 @@ const pushLogSchema = new mongoose.Schema(
       required: true,
     },
 
-    // 推送类型
+    // 推送类型（本项目已无支付，order_status 一并去掉）
     type: {
       type: String,
-      enum: ['daily_fortune', 'fortune_result', 'order_status', 'system'],
+      enum: ['daily_fortune', 'fortune_result', 'system'],
       required: true,
     },
 
