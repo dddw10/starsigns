@@ -32,7 +32,8 @@ class AIService {
    * @param {string} params.userId - DB User ID (optional)
    * @param {boolean} params.stream - Whether to use streaming (default: true)
    */
-  async chat({ messages, birthInfo, gender, userId, stream = true }) {
+  async chat({ messages, birthInfo, gender, userId, stream = true, signal }) {
+    signal?.throwIfAborted();
     const client = this.getClient();
 
     // 创建 Langfuse 追踪
@@ -110,6 +111,7 @@ class AIService {
     const maxLoops = 5;
 
     while (loopCount < maxLoops) {
+      signal?.throwIfAborted();
       loopCount++;
 
       // 追踪每一次大模型决策循环的 LLM 调用
@@ -124,7 +126,8 @@ class AIService {
         messages: currentMessages,
         tools: tools,
         tool_choice: 'auto',
-      });
+      }, { signal });
+      signal?.throwIfAborted();
 
       const responseMessage = response.choices[0].message;
 
@@ -143,6 +146,7 @@ class AIService {
         currentMessages.push(responseMessage);
 
         for (const toolCall of responseMessage.tool_calls) {
+          signal?.throwIfAborted();
           const functionName = toolCall.function.name;
           const functionArgs = JSON.parse(toolCall.function.arguments);
           let functionResult = '';
@@ -195,17 +199,20 @@ class AIService {
             input: currentMessages,
           }) : null;
 
+          signal?.throwIfAborted();
           const responseStream = await client.chat.completions.create({
             model: this.model,
             messages: currentMessages,
             stream: true,
-          });
+          }, { signal });
+          signal?.throwIfAborted();
 
           // 利用异步生成器拦截并汇总流式响应内容到 Langfuse 平台
           async function* streamInterceptor() {
             let fullContent = '';
             try {
               for await (const chunk of responseStream) {
+                signal?.throwIfAborted();
                 const content = chunk.choices[0]?.delta?.content || '';
                 fullContent += content;
                 yield chunk;
@@ -242,7 +249,8 @@ class AIService {
             model: this.model,
             messages: currentMessages,
             stream: false,
-          });
+          }, { signal });
+          signal?.throwIfAborted();
 
           const finalContent = response.choices[0].message.content || '';
 

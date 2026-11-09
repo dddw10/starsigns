@@ -26,7 +26,7 @@ class MultiAgentService {
   /**
    * 运行单个智能体的流式输出，并将其推入共享的可读流中（带 Langfuse 追踪）
    */
-  async runAgentOpinionStream(client, systemPrompt, userMessage, agentName, readableStream, trace) {
+  async runAgentOpinionStream(client, systemPrompt, userMessage, agentName, readableStream, trace, signal) {
     // 创建 Langfuse Generation 节点
     const generation = trace ? trace.generation({
       name: `council-agent-${agentName}`,
@@ -38,6 +38,7 @@ class MultiAgentService {
     }) : null;
 
     try {
+      signal?.throwIfAborted();
       const stream = await client.chat.completions.create({
         model: this.model,
         messages: [
@@ -45,13 +46,15 @@ class MultiAgentService {
           { role: 'user', content: userMessage }
         ],
         stream: true,
-      });
+      }, { signal });
+      signal?.throwIfAborted();
 
       // 发送智能体发言开始事件
       readableStream.push(`data: ${JSON.stringify({ agent: agentName, event: 'start' })}\n\n`);
 
       let fullContent = '';
       for await (const chunk of stream) {
+        signal?.throwIfAborted();
         const content = chunk.choices[0]?.delta?.content || '';
         if (content) {
           fullContent += content;
@@ -75,7 +78,8 @@ class MultiAgentService {
           output: { error: err.message }
         });
       }
-      readableStream.push(`data: ${JSON.stringify({ agent: agentName, error: err.message })}\n\n`);
+      if (signal?.aborted) throw err;
+      if (!readableStream.destroyed) readableStream.push(`data: ${JSON.stringify({ agent: agentName, error: '推演暂时无法完成，请稍后重试' })}\n\n`);
     }
   }
 
@@ -110,7 +114,8 @@ class MultiAgentService {
   /**
    * 启动多智能体圆桌会谈流
    */
-  councilStream({ messages, birthInfo, gender, userId }) {
+  councilStream({ messages, birthInfo, gender, userId, signal }) {
+    signal?.throwIfAborted();
     const client = this.getClient();
     const userQuestion = messages[messages.length - 1].content;
     
@@ -131,27 +136,29 @@ class MultiAgentService {
       try {
         // 计算八字基础信息。本方法要同步把 stream 交给调用方，
         // 所以排盘只能放进这条 async 流水线里 await
+        signal?.throwIfAborted();
         const baziString = await self.buildBaziString(birthInfo, gender);
+        signal?.throwIfAborted();
 
         // --- 智能体 1: 妙空大师 (东方命理) ---
         const systemPrompt1 = `你是一位修行多年的东方玄学命理大师——妙空大师。你说话充满禅意，常称呼用户为“施主”，句首喜欢念“阿弥陀佛”。
 你精通生辰八字、易经八卦。请针对用户的提问，结合其八字五行给出深刻而充满慈悲的命理解读。
 当前用户信息：性别 ${gender === 'female' ? '女' : '男'}，八字参数 [${baziString}]。`;
         
-        await self.runAgentOpinionStream(client, systemPrompt1, `用户求测: "${userQuestion}"`, '妙空大师 (东方命理)', stream, trace);
+        await self.runAgentOpinionStream(client, systemPrompt1, `用户求测: "${userQuestion}"`, '妙空大师 (东方命理)', stream, trace, signal);
 
         // --- 智能体 2: 塞蕾娜 (西方占星) ---
         const systemPrompt2 = `你是一位神秘高贵的西方占星与塔罗占卜师——塞蕾娜 (Serena)。你说话优雅、充满洞察力，经常引用神秘的塔罗牌隐喻或星体运行状态。
 请针对用户的提问，结合西方神秘学视角进行解答。
 当前用户信息：性别 ${gender === 'female' ? '女' : '男'}，八字参数 [${baziString}]。`;
 
-        await self.runAgentOpinionStream(client, systemPrompt2, `用户求测: "${userQuestion}"`, '塞蕾娜 (西方占星)', stream, trace);
+        await self.runAgentOpinionStream(client, systemPrompt2, `用户求测: "${userQuestion}"`, '塞蕾娜 (西方占星)', stream, trace, signal);
 
         // --- 智能体 3: 德叔 (心理咨询) ---
         const systemPrompt3 = `你是一位极具同理心且接地气的现代心理咨询师——德叔。你说话幽默务实，不喜欢神棍那一套，专注于帮助用户解决实际心理焦虑和生活困境。
 请针对用户的提问，从心理疏导和行为学方法（如CBT）给出实用、可执行的具体行动指导。`;
 
-        await self.runAgentOpinionStream(client, systemPrompt3, `用户求测: "${userQuestion}"`, '德叔 (心理学咨询)', stream, trace);
+        await self.runAgentOpinionStream(client, systemPrompt3, `用户求测: "${userQuestion}"`, '德叔 (心理学咨询)', stream, trace, signal);
 
         // --- 智能体 4: 编译主笔智能体 ---
         const systemPrompt4 = `你是一位大宗师级别的命运汇总结编师。你需要综合妙空大师（东方）、塞蕾娜（西方）和德叔（心理学）三人的意见，去除冗余，合并出一部排盘严整、对用户极具指导意义的“命运综合分析报告”。
@@ -161,17 +168,19 @@ class MultiAgentService {
 3. 📝【未来三个月具体执行行动清单】`;
 
         const userMessage4 = `用户问题: "${userQuestion}"\n请总结前面三位专家的会谈精髓，生成终极报告。`;
-        await self.runAgentOpinionStream(client, systemPrompt4, userMessage4, '命运综合分析报告', stream, trace);
+        await self.runAgentOpinionStream(client, systemPrompt4, userMessage4, '命运综合分析报告', stream, trace, signal);
 
         // 结束整个圆桌流并关闭 Langfuse 实例以刷入数据
+        signal?.throwIfAborted();
         stream.push('data: [DONE]\n\n');
         stream.push(null);
         if (langfuse) {
           langfuse.shutdownAsync().catch(e => console.error('[Langfuse] Shutdown error:', e));
         }
       } catch (error) {
+        if (signal?.aborted || stream.destroyed) return;
         console.error('Multi-Agent Council loop crashed:', error);
-        stream.push(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        stream.push(`data: ${JSON.stringify({ error: '推演暂时无法完成，请稍后重试' })}\n\n`);
         stream.push(null);
         if (langfuse) {
           langfuse.shutdownAsync().catch(e => console.error('[Langfuse] Shutdown error:', e));
@@ -185,7 +194,7 @@ class MultiAgentService {
   /**
    * 运行单个智能体的非流式输出（带 Langfuse 追踪）
    */
-  async runAgentOpinionNonStream(client, systemPrompt, userMessage, agentName, trace) {
+  async runAgentOpinionNonStream(client, systemPrompt, userMessage, agentName, trace, signal) {
     const generation = trace ? trace.generation({
       name: `council-agent-nonstream-${agentName}`,
       model: this.model,
@@ -196,6 +205,7 @@ class MultiAgentService {
     }) : null;
 
     try {
+      signal?.throwIfAborted();
       const response = await client.chat.completions.create({
         model: this.model,
         messages: [
@@ -203,7 +213,8 @@ class MultiAgentService {
           { role: 'user', content: userMessage }
         ],
         stream: false,
-      });
+      }, { signal });
+      signal?.throwIfAborted();
 
       const content = response.choices[0].message.content || '';
 
@@ -232,7 +243,8 @@ class MultiAgentService {
   /**
    * 启动多智能体圆桌会谈（非流式）
    */
-  async councilNonStream({ messages, birthInfo, gender, userId }) {
+  async councilNonStream({ messages, birthInfo, gender, userId, signal }) {
+    signal?.throwIfAborted();
     const client = this.getClient();
     const userQuestion = messages[messages.length - 1].content;
     
@@ -243,6 +255,7 @@ class MultiAgentService {
     }) : null;
 
     const baziString = await this.buildBaziString(birthInfo, gender);
+    signal?.throwIfAborted();
 
     const opinions = [];
 
@@ -250,20 +263,20 @@ class MultiAgentService {
     const systemPrompt1 = `你是一位修行多年的东方玄学命理大师——妙空大师。你说话充满禅意，常称呼用户为“施主”，句首喜欢念“阿弥陀佛”。
 你精通生辰八字、易经八卦。请针对用户的提问，结合其八字五行给出深刻而充满慈悲的命理解读。
 当前用户信息：性别 ${gender === 'female' ? '女' : '男'}，八字参数 [${baziString}]。`;
-    const opinion1 = await this.runAgentOpinionNonStream(client, systemPrompt1, `用户求测: "${userQuestion}"`, '妙空大师 (东方命理)', trace);
+    const opinion1 = await this.runAgentOpinionNonStream(client, systemPrompt1, `用户求测: "${userQuestion}"`, '妙空大师 (东方命理)', trace, signal);
     opinions.push({ agent: '妙空大师 (东方命理)', content: opinion1 });
 
     // 塞蕾娜
     const systemPrompt2 = `你是一位神秘高贵的西方占星与塔罗占卜师——塞蕾娜 (Serena)。你说话优雅、充满洞察力，经常引用神秘的塔罗牌隐喻或星体运行状态。
 请针对用户的提问，结合西方神秘学视角进行解答。
 当前用户信息：性别 ${gender === 'female' ? '女' : '男'}，八字参数 [${baziString}]。`;
-    const opinion2 = await this.runAgentOpinionNonStream(client, systemPrompt2, `用户求测: "${userQuestion}"`, '塞蕾娜 (西方占星)', trace);
+    const opinion2 = await this.runAgentOpinionNonStream(client, systemPrompt2, `用户求测: "${userQuestion}"`, '塞蕾娜 (西方占星)', trace, signal);
     opinions.push({ agent: '塞蕾娜 (西方占星)', content: opinion2 });
 
     // 德叔
     const systemPrompt3 = `你是一位极具同理心且接地气的现代心理咨询师——德叔。你说话幽默务实，不喜欢神棍那一套，专注于帮助用户解决实际心理焦虑和生活困境。
 请针对用户的提问，从心理疏导和行为学方法（如CBT）给出实用、可执行的具体行动指导。`;
-    const opinion3 = await this.runAgentOpinionNonStream(client, systemPrompt3, `用户求测: "${userQuestion}"`, '德叔 (心理学咨询)', trace);
+    const opinion3 = await this.runAgentOpinionNonStream(client, systemPrompt3, `用户求测: "${userQuestion}"`, '德叔 (心理学咨询)', trace, signal);
     opinions.push({ agent: '德叔 (心理学咨询)', content: opinion3 });
 
     // 命运综合分析报告
@@ -273,7 +286,7 @@ class MultiAgentService {
 2. ⚠️【核心红线与避坑警示】
 3. 📝【未来三个月具体执行行动清单】`;
     const userMessage4 = `用户问题: "${userQuestion}"\n请总结前面三位专家的会谈精髓，生成终极报告。`;
-    const opinion4 = await this.runAgentOpinionNonStream(client, systemPrompt4, userMessage4, '命运综合分析报告', trace);
+    const opinion4 = await this.runAgentOpinionNonStream(client, systemPrompt4, userMessage4, '命运综合分析报告', trace, signal);
     opinions.push({ agent: '命运综合分析报告', content: opinion4 });
 
     if (langfuse) {

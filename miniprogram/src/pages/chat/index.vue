@@ -148,7 +148,8 @@
 import { ref, reactive, nextTick, onMounted, computed, watch } from 'vue'
 import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
-import { BASE_URL, recoverSession, waitForSession } from '@/api/request'
+import { onUnload } from '@dcloudio/uni-app'
+import { BASE_URL, recoverSession, waitForSession, getSessionVersion, isSessionCurrent } from '@/api/request'
 import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
@@ -241,7 +242,20 @@ class Utf8Decoder {
   }
 }
 
+let requestVersion = 0
+let activeTask = null
+const cancelRequest = () => {
+  requestVersion++
+  const previous = activeTask
+  activeTask = null
+  loading.value = false
+  previous?.abort?.()
+}
+onUnload(cancelRequest)
+watch(() => userStore.sessionVersion, () => { if (activeTask) cancelRequest() })
 const useStream = ref(true) // 是否开启流式输出，默认开启
+
+watch(useStream, cancelRequest)
 
 // 初始问候语
 const initWelcome = () => {
@@ -263,6 +277,7 @@ onMounted(blockedByAuditMode)
 
 const switchMode = (mode) => {
   if (chatMode.value === mode) return
+  cancelRequest()
   chatMode.value = mode
   messages.value = []
   if (mode === 'private') {
@@ -326,6 +341,10 @@ const scrollToBottom = () => {
 // 核心：发送消息
 const sendMessage = async () => {
   if (!inputMsg.value.trim() || loading.value) return
+  const operation = ++requestVersion
+  let sessionVersion = null
+  const current = () => operation === requestVersion && (sessionVersion === null || isSessionCurrent(sessionVersion))
+  loading.value = true
 
   // 1. 如果未登录，强制进行静默登录获取 Token，保证后端 Mongoose 能够正确存库
   if (!userStore.isLoggedIn) {
@@ -343,10 +362,13 @@ const sendMessage = async () => {
     } finally {
       uni.hideLoading()
     }
-    if (loginToast) { uni.showToast(loginToast); return }
+    if (!current()) return
+    if (loginToast) { loading.value = false; uni.showToast(loginToast); return }
   }
   try { await waitForSession() }
-  catch (error) { uni.showToast({ title: error.message, icon: 'none' }); return }
+  catch (error) { if (current()) { loading.value = false; uni.showToast({ title: error.message, icon: 'none' }) }; return }
+  if (!current()) return
+  sessionVersion = getSessionVersion()
 
   const userQuery = inputMsg.value.trim()
   inputMsg.value = ''
@@ -394,12 +416,15 @@ const sendMessage = async () => {
   // 服务端对「带了令牌但已过期」如实回 401（不再当游客放过去），
   // 所以这里必须自己换一次令牌再重发，否则用户会在对话里看到「服务器状态码: 401」，以为服务坏了。
   // 只重试一次；恢复失败时 store 已经弹过「登录已过期」，这里不再叠一层提示
+  let attemptVersion = 0
+  let failedToken = ''
   let authRetried = false
   const recoverAndRetry = async (resend) => {
-    if (authRetried) return
+    if (!current() || authRetried) { if (current()) loading.value = false; return }
     authRetried = true
-    const recovered = await recoverSession()
-    if (!recovered) return
+    const recovered = await recoverSession(sessionVersion, failedToken)
+    if (!current()) return
+    if (!recovered) { loading.value = false; return }
     // complete 回调会把 loading 关掉，所以要在恢复成功、准备重发时重新点亮
     loading.value = true
     resend()
@@ -412,8 +437,11 @@ const sendMessage = async () => {
 
   // 如果选择非流式稳定模式，或者不是微信平台，都走稳定网络路径 (普通 POST 请求)
   const sendStable = () => {
-    console.log('[AI Chat] Initiating stable non-stream request...')
-    uni.request({
+    if (!current()) return
+    const attempt = ++attemptVersion
+    const active = () => current() && attempt === attemptVersion
+    failedToken = uni.getStorageSync('user_token') || ''
+    activeTask = uni.request({
       url: requestUrl,
       method: 'POST',
       data: {
@@ -428,12 +456,14 @@ const sendMessage = async () => {
       header: buildHeaders(),
       timeout: 60000,
       success: (res) => {
+        if (!active()) return
         console.log('[AI Chat] Stable request success:', res.statusCode)
-        loading.value = false
         if (res.statusCode === 401) {
           recoverAndRetry(sendStable)
           return
         }
+        loading.value = false
+        activeTask = null
         if (res.statusCode === 200 && res.data && res.data.code === 0) {
           if (chatMode.value === 'private') {
             const replyContent = res.data.data?.content || ''
@@ -463,6 +493,7 @@ const sendMessage = async () => {
         }
       },
       fail: (err) => {
+        if (!active()) return
         console.error('[AI Chat] Stable request failed:', err)
         loading.value = false
         uni.showModal({
@@ -472,7 +503,7 @@ const sendMessage = async () => {
         })
       },
       complete: () => {
-        loading.value = false
+        if (!active()) return
         scrollToBottom()
       }
     })
@@ -486,6 +517,10 @@ const sendMessage = async () => {
   // #ifdef MP-WEIXIN
   // 流式输出模式 (使用原生微信请求以获得更可靠的 SSE chunked 流接收能力)
   const sendStream = () => {
+    if (!current()) return
+    const attempt = ++attemptVersion
+    const active = () => current() && attempt === attemptVersion
+    failedToken = uni.getStorageSync('user_token') || ''
     // 每次重发都要重置分片状态，否则重试会拼上一次的残包
     let activeAgentMsg = null
     let isFirstChunk = true
@@ -510,14 +545,16 @@ const sendMessage = async () => {
       enableChunked: true,
       header: buildHeaders(),
       success: (res) => {
+        if (!active()) return
         console.log('Native SSE Stream Request Success, Status Code:', res.statusCode)
-        loading.value = false
 
         if (res.statusCode === 401 && !receivedAnyChunk) {
           recoverAndRetry(sendStream)
           return
         }
 
+        loading.value = false
+        activeTask = null
         if (res.statusCode === 200) {
           // 兜底逻辑：如果 onChunkReceived 没有被触发过
           if (!receivedAnyChunk) {
@@ -580,6 +617,7 @@ const sendMessage = async () => {
         }
       },
       fail: (err) => {
+        if (!active()) return
         console.error('Native SSE Stream Request Failed:', err)
         loading.value = false
         uni.showModal({
@@ -589,15 +627,17 @@ const sendMessage = async () => {
         })
       },
       complete: () => {
-        loading.value = false
+        if (!active()) return
         scrollToBottom()
       }
     })
 
+    activeTask = requestTask
+
     // 监听 Chunk 数据并实时解码渲染
     requestTask.onChunkReceived((res) => {
+      if (!active()) return
       receivedAnyChunk = true
-      loading.value = false
       const buffer = res.data
       const uint8Array = new Uint8Array(buffer)
 
@@ -629,7 +669,9 @@ const sendMessage = async () => {
           try {
             const parsed = JSON.parse(dataVal)
 
-            if (parsed.agent) {
+            if (parsed.error) {
+              uni.showToast({ title: '推演暂时无法完成，请稍后重试', icon: 'none' })
+            } else if (parsed.agent) {
               // --- 多智能体圆桌会谈流模式 ---
               if (parsed.event === 'start') {
                 activeAgentMsg = {
@@ -684,6 +726,7 @@ const sendMessage = async () => {
 }
 
 const goBack = () => {
+  cancelRequest()
   uni.navigateBack()
 }
 </script>

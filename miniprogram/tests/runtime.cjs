@@ -25,7 +25,13 @@ async function runtime({ platform = 'MP-WEIXIN', stored = {} } = {}) {
     setStorageSync: (key, value) => storage.set(key, value),
     removeStorageSync: key => storage.delete(key),
     login: async () => ({ code: 'real-wechat-code' }),
-    request: options => { requests.push(options); return { abort() {}, onChunkReceived() {} } },
+    request: options => {
+      const task = { aborted: false, abort() { this.aborted = true; options.fail?.({ errMsg: 'abort' }); options.complete?.() },
+        onChunkReceived(callback) { this.chunk = callback } }
+      options.task = task
+      requests.push(options)
+      return task
+    },
     showToast: options => notifications.push(options),
     showModal: options => notifications.push(options),
     reLaunch: options => notifications.push(options),

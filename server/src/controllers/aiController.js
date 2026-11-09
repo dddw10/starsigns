@@ -1,146 +1,78 @@
 const aiService = require('../services/aiService');
 const multiAgentService = require('../services/multiAgentService');
+const publicError = '推演暂时无法完成，请稍后重试';
 
-/**
- * AI 命理大师流式聊天控制器
- */
-exports.chatStream = async (req, res, next) => {
+async function respond(req, res, next, council) {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let activeStream;
+  const abort = () => {
+    controller.abort();
+    activeStream?.destroy?.();
+  };
+  const onClose = () => { if (!res.writableFinished) abort(); };
+  req.once('aborted', abort);
+  res.once('close', onClose);
+  const connected = () => !signal.aborted && !res.destroyed && !res.writableFinished;
   try {
-    const userId = req.user ? req.user.userId : null;
-    const { messages, birthInfo, gender, stream: streamRequested } = req.body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ code: 400, message: 'messages 必填且必须为数组' });
+    if (req.aborted || res.destroyed) { abort(); return; }
+    const { messages, birthInfo, gender, stream: requested } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ code: 400, message: 'messages 必填且必须为非空数组' });
     }
-
-    const useStream = streamRequested !== false;
-
-    if (useStream) {
-      // 设置 Server-Sent Events 流式响应头部
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no'); 
-
-      // 立即向客户端发送响应头
-      if (typeof res.flushHeaders === 'function') {
-        res.flushHeaders();
-      }
-
-      // 获取大模型流式响应
-      const stream = await aiService.chat({
-        messages,
-        birthInfo,
-        gender,
-        userId,
-        stream: true,
+    const params = { messages, birthInfo, gender, userId: req.user?.userId || null, signal };
+    if (requested === false) {
+      const data = council
+        ? { opinions: await multiAgentService.councilNonStream(params) }
+        : { content: await aiService.chat({ ...params, stream: false }) };
+      if (connected()) res.json({ code: 0, data });
+      return;
+    }
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+    if (council) {
+      activeStream = multiAgentService.councilStream(params);
+      // Keep cancellation listeners alive until this readable finishes or disconnects.
+      await new Promise((resolve, reject) => {
+        const onData = chunk => { if (connected()) res.write(chunk); };
+        const cleanup = () => {
+          activeStream.removeListener('data', onData);
+          activeStream.removeListener('end', onEnd);
+          activeStream.removeListener('close', onEnd);
+          activeStream.removeListener('error', onError);
+        };
+        const onEnd = () => { cleanup(); resolve(); };
+        const onError = error => { cleanup(); reject(error); };
+        activeStream.on('data', onData);
+        activeStream.once('end', onEnd);
+        activeStream.once('close', onEnd);
+        activeStream.once('error', onError);
+        if (signal.aborted) activeStream.destroy();
       });
-
-      // 循环迭代读取流数据并输出
-      for await (const chunk of stream) {
+    } else {
+      activeStream = await aiService.chat({ ...params, stream: true });
+      for await (const chunk of activeStream) {
+        if (!connected()) break;
         const content = chunk.choices[0]?.delta?.content || '';
-        if (content) {
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
-        }
+        if (content) res.write('data: ' + JSON.stringify({ content }) + '\n\n');
       }
-
-      // 发送结束标识
-      res.write('data: [DONE]\n\n');
-      res.end();
-    } else {
-      // 非流式响应
-      console.log('[AI Controller] Processing non-stream chat request...');
-      const resultContent = await aiService.chat({
-        messages,
-        birthInfo,
-        gender,
-        userId,
-        stream: false,
-      });
-      res.json({ code: 0, data: { content: resultContent } });
+      if (connected()) res.write('data: [DONE]\n\n');
     }
+    if (connected()) res.end();
   } catch (error) {
-    console.error('AI Chat Stream Error:', error);
-    
-    // 如果头部还没发送，交给全局错误中间件处理
-    if (!res.headersSent) {
-      return next(error);
-    }
-    
-    // 若头部已发送，则在流中返回错误信息并结束流
-    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+    if (!connected()) return;
+    console.error('AI request failed:', error);
+    if (!res.headersSent) return res.status(503).json({ code: 503, message: publicError });
+    res.write('data: ' + JSON.stringify({ error: publicError }) + '\n\n');
     res.end();
+  } finally {
+    req.removeListener('aborted', abort);
+    res.removeListener('close', onClose);
   }
-};
+}
 
-/**
- * AI 智能体圆桌会谈流式控制器
- */
-exports.councilStream = async (req, res, next) => {
-  try {
-    const userId = req.user ? req.user.userId : null;
-    const { messages, birthInfo, gender, stream: streamRequested } = req.body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ code: 400, message: 'messages 必填且必须为数组' });
-    }
-
-    const useStream = streamRequested !== false;
-
-    if (useStream) {
-      // 设置 SSE 头部
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
-
-      if (typeof res.flushHeaders === 'function') {
-        res.flushHeaders();
-      }
-
-      // 启动多智能体圆桌会谈流
-      const stream = multiAgentService.councilStream({
-        messages,
-        birthInfo,
-        gender,
-        userId,
-      });
-
-      // 管道输出流数据
-      stream.on('data', (chunk) => {
-        res.write(chunk);
-      });
-
-      stream.on('end', () => {
-        res.end();
-      });
-
-      stream.on('error', (err) => {
-        console.error('Council Stream Error in controller:', err.message);
-        if (!res.headersSent) {
-          return next(err);
-        }
-        res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-        res.end();
-      });
-    } else {
-      // 非流式多智能体圆桌会谈响应
-      console.log('[AI Controller] Processing non-stream council request...');
-      const opinions = await multiAgentService.councilNonStream({
-        messages,
-        birthInfo,
-        gender,
-        userId,
-      });
-      res.json({ code: 0, data: { opinions } });
-    }
-  } catch (error) {
-    console.error('AI Council Stream Route Error:', error);
-    if (!res.headersSent) {
-      return next(error);
-    }
-    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-    res.end();
-  }
-};
-
+exports.chatStream = (req, res, next) => respond(req, res, next, false);
+exports.councilStream = (req, res, next) => respond(req, res, next, true);
