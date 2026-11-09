@@ -2,6 +2,7 @@ const axios = require('axios');
 const PushSubscription = require('../models/PushSubscription');
 const PushLog = require('../models/PushLog');
 const User = require('../models/User');
+const { canReceiveWechatPush } = require('./identity');
 const wechatConfig = require('../config/wechat');
 const { getRedis } = require('../config/redis');
 const { getBeijingDateString } = require('../utils/date');
@@ -49,7 +50,8 @@ class PushService {
   _buildSettings(user, sub) {
     const quota = sub ? Math.max(0, sub.remainingQuota || 0) : 0;
     const notExpired = Boolean(sub && sub.expireAt && sub.expireAt.getTime() > Date.now());
-    const available = Boolean(sub && sub.status === 'active' && quota > 0 && notExpired);
+    const available = Boolean(canReceiveWechatPush(user) && sub && sub.openid === user.openid
+      && sub.status === 'active' && quota > 0 && notExpired);
 
     return {
       // 「还能收到吗」
@@ -72,7 +74,7 @@ class PushService {
   }
 
   async getSettings(userId) {
-    const user = await User.findById(userId).select('pushSettings subscribeAccepted');
+    const user = await User.findById(userId).select('pushSettings subscribeAccepted authSource openid');
     if (!user) {
       throw httpError('用户不存在', 404);
     }
@@ -121,7 +123,7 @@ class PushService {
     if (!user) {
       throw httpError('用户不存在', 404);
     }
-    if (!user.openid || String(user.openid).startsWith('h5-')) {
+    if (!canReceiveWechatPush(user)) {
       // H5 端没有微信订阅消息这条通道
       throw httpError('当前登录方式不支持微信服务通知', 400);
     }
@@ -333,6 +335,10 @@ class PushService {
     for (const sub of subscriptions) {
       try {
         const user = sub.userId;
+        if (!canReceiveWechatPush(user) || sub.openid !== user.openid) {
+          stats.skipped += 1;
+          continue;
+        }
         if (!user || !user.birthInfo || !user.birthInfo.yearGanZhi) {
           stats.skipped += 1;
           stats.skippedNoBirthInfo += 1;

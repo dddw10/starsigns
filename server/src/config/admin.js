@@ -29,7 +29,7 @@ function getAdminPhones() {
   return new Set([...parseList(process.env.ADMIN_PHONES)].map(normalizePhone).filter(Boolean));
 }
 
-// 判断用户是否为管理员：ID 命中或手机号命中即可
+// ID 由维护者配置；手机号必须来自真实验证，旧号码不能自动升级。
 function isAdminUser(user) {
   if (!user) return false;
 
@@ -39,7 +39,8 @@ function isAdminUser(user) {
   }
 
   const phone = normalizePhone(user.phone);
-  return !!phone && getAdminPhones().has(phone);
+  return user.phoneVerifiedSource === 'wechat' && user.authSource !== 'dev_mock'
+    && !!phone && getAdminPhones().has(phone);
 }
 
 module.exports = {

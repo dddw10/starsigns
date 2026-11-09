@@ -66,9 +66,16 @@ describe('_shouldUseMockLogin', () => {
     expect(userService._shouldUseMockLogin()).toBe(false);
   });
 
-  test('ALLOW_MOCK_LOGIN=true 是唯一的显式逃生门', () => {
+  test('生产环境即使 ALLOW_MOCK_LOGIN=true 也禁止模拟', () => {
     process.env.NODE_ENV = 'production';
     setCredentials('wx1234567890abcdef', 'your_app_secret');
+    process.env.ALLOW_MOCK_LOGIN = 'true';
+    expect(userService._shouldUseMockLogin()).toBe(false);
+  });
+
+  test('开发环境可以显式启用模拟', () => {
+    process.env.NODE_ENV = 'development';
+    setCredentials('wx1234567890abcdef', 'abcdef1234567890abcdef1234567890');
     process.env.ALLOW_MOCK_LOGIN = 'true';
     expect(userService._shouldUseMockLogin()).toBe(true);
   });

@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Feedback = require('../models/Feedback');
 const wechatConfig = require('../config/wechat');
 const { generateToken } = require('../middleware/auth');
-const { isAdminUser } = require('../config/admin');
+const { isAdminUser, normalizePhone } = require('../config/admin');
 const { getRedis } = require('../config/redis');
 const { getEightChar, resolveSolarDate } = require('../algorithms/bazi');
 const { getBeijingDateString } = require('../utils/date');
@@ -56,7 +56,7 @@ class UserService {
       console.error(
         '[login] 拒绝登录：WECHAT_APP_ID / WECHAT_APP_SECRET 未配置或仍是占位值。' +
         '生产环境不允许降级到 mock 登录（每次冷启动都会新建一个用户，用户会发现自己的数据没了）。' +
-        '请补全环境变量后重启服务；确实要在生产用 mock 请显式设置 ALLOW_MOCK_LOGIN=true。'
+        '请补全环境变量后重启服务；模拟登录只允许隔离开发环境。'
       );
       const err = new Error('服务端未配置微信登录凭证');
       err.status = 503;
@@ -75,7 +75,8 @@ class UserService {
     }
 
     const { openid, unionid, session_key: sessionKey } = wxResult.data;
-    const user = await this._findOrCreateUser({ openid, unionid });
+    if (typeof openid !== 'string' || !openid.trim()) throw new Error('微信登录响应缺少有效身份');
+    const user = await this._findOrCreateUser({ openid, unionid, authSource: 'wechat' });
     await this._cacheSession(openid, sessionKey);
 
     return this._buildLoginResult(user, openid);
@@ -228,9 +229,10 @@ class UserService {
   // mock 登录的身份是拿一次性的 login code 拼出来的（openid = dev_openid_<code>），
   // 小程序每次冷启动 code 都不一样，也就等于换了一个新用户：生辰、历史记录、神兽全都对不上。
   // 线上真出过这事——WECHAT_APP_SECRET 还是占位值，于是每次进小程序都新建一个账号。
-  // 所以凭证齐全就一律走真实登录；凭证缺失时只有非生产环境（或显式 ALLOW_MOCK_LOGIN=true）才允许降级，
+  // 凭证缺失的模拟登录只允许非生产环境，生产环境不能用开关绕过。
   // 生产环境宁可让登录报错，也不能悄悄发一个换了人的身份出去。
   _shouldUseMockLogin() {
+    if (process.env.NODE_ENV === 'production') return false;
     if (this._hasWechatCredentials()) {
       return process.env.ALLOW_MOCK_LOGIN === 'true';
     }
@@ -243,23 +245,26 @@ class UserService {
     const unionid = `dev_unionid_${suffix}`;
     const sessionKey = 'dev_session_key';
     const isH5 = String(code).startsWith('h5-');
+    if (!isH5 && !this._shouldUseMockLogin()) throw new Error('当前环境禁止模拟登录');
     const user = await this._findOrCreateUser({
       openid,
       unionid,
       nickname: isH5 ? 'H5 用户' : 'Local Dev User',
       avatar: '',
+      authSource: isH5 ? 'h5_guest' : 'dev_mock',
     });
 
     await this._cacheSession(openid, sessionKey);
     return this._buildLoginResult(user, openid);
   }
 
-  async _findOrCreateUser({ openid, unionid, nickname = '', avatar = '' }) {
+  async _findOrCreateUser({ openid, unionid, nickname = '', avatar = '', authSource }) {
     let user = await User.findOne({ openid });
     if (!user) {
-      user = await User.create({ openid, unionid, nickname, avatar });
+      user = await User.create({ openid, unionid, nickname, avatar, authSource });
     } else {
       if (unionid && !user.unionid) user.unionid = unionid;
+      user.authSource = authSource;
       user.lastLoginAt = new Date();
       await user.save();
     }
@@ -296,6 +301,7 @@ class UserService {
       avatar: user.avatar,
       gender: user.gender,
       phone: user.phone || '',
+      authSource: user.authSource || 'unknown',
       isAdmin: isAdminUser(user),
       totalUsage: 0,
       birthInfo: user.birthInfo,
@@ -352,7 +358,12 @@ class UserService {
     // 手机号是管理员凭据，mock 绑定只允许在 mock 登录环境（本地/未配 AppID）下发生。
     // 注意：这里不能再认裸的 code === 'mock-phone-code'，否则线上任何登录用户
     // 都能把自己的 phone 写成白名单里的号码从而提权。
-    if (this._shouldUseMockLogin() || String(code).startsWith('h5-')) {
+    if (typeof code !== 'string' || !code.trim() || code.startsWith('h5-')) {
+      const error = new Error('手机号授权凭证无效');
+      error.status = 400;
+      throw error;
+    }
+    if (this._shouldUseMockLogin()) {
       return this._mockBindPhone(userId);
     }
 
@@ -367,8 +378,10 @@ class UserService {
         throw new Error(`WeChat phone binding failed: ${res.data.errmsg} (code: ${res.data.errcode})`);
       }
 
-      const phoneNumber = res.data.phone_info.phoneNumber;
-      const user = await User.findByIdAndUpdate(userId, { $set: { phone: phoneNumber } }, { new: true });
+      const phoneNumber = normalizePhone(res.data.phone_info?.phoneNumber);
+      if (!/^1\d{10}$/.test(phoneNumber)) throw new Error('微信手机号响应无效');
+      const user = await User.findByIdAndUpdate(userId,
+        { $set: { phone: phoneNumber, phoneVerifiedSource: 'wechat' } }, { new: true });
       if (!user) {
         throw new Error('User not found');
       }
@@ -383,10 +396,11 @@ class UserService {
   }
 
   async _mockBindPhone(userId) {
+    if (!this._shouldUseMockLogin()) throw new Error('当前环境禁止模拟手机号绑定');
     const mockPhone = (process.env.MOCK_BIND_PHONE || '13580006666').trim();
     const user = await User.findByIdAndUpdate(
       userId,
-      { $set: { phone: mockPhone } },
+      { $set: { phone: mockPhone, phoneVerifiedSource: 'mock' } },
       { new: true }
     );
     if (!user) {
@@ -416,6 +430,7 @@ class UserService {
       username: username.trim(),
       password: hashedPassword,
       nickname: username.trim(),
+      authSource: 'account',
       openid: openid
     });
 
@@ -441,6 +456,10 @@ class UserService {
     if (user.password !== hashedPassword) {
       throw new Error('账号或密码错误');
     }
+
+    user.authSource = 'account';
+    user.lastLoginAt = new Date();
+    await user.save();
 
     return this._buildLoginResult(user, user.openid || `h5_openid_${user.username}`);
   }

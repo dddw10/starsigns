@@ -10,6 +10,17 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
+    authSource: {
+      type: String,
+      enum: ['wechat', 'h5_guest', 'account', 'dev_mock', 'unknown'],
+      default: 'unknown',
+    },
+    phoneVerifiedSource: {
+      type: String,
+      enum: ['', 'wechat', 'mock'],
+      default: '',
+    },
+
     // 微信 unionid
     unionid: {
       type: String,

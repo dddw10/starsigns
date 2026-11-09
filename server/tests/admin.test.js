@@ -31,9 +31,9 @@ describe('isAdminUser', () => {
 
   test('手机号命中白名单', () => {
     process.env.ADMIN_PHONES = ADMIN_PHONE;
-    expect(isAdminUser({ phone: ADMIN_PHONE })).toBe(true);
+    expect(isAdminUser({ phone: ADMIN_PHONE, phoneVerifiedSource: 'wechat' })).toBe(true);
     // 带国家码、带分隔符的写法一样能命中
-    expect(isAdminUser({ phone: '+86 135-3014-7144' })).toBe(true);
+    expect(isAdminUser({ phone: '+86 135-3014-7144', phoneVerifiedSource: 'wechat' })).toBe(true);
   });
 
   test('手机号没命中就不是管理员', () => {
@@ -42,6 +42,21 @@ describe('isAdminUser', () => {
     expect(isAdminUser({ phone: '' })).toBe(false);
     expect(isAdminUser({})).toBe(false);
     expect(isAdminUser(null)).toBe(false);
+  });
+
+  test.each([
+    { phone: ADMIN_PHONE },
+    { phone: ADMIN_PHONE, phoneVerifiedSource: '' },
+    { phone: ADMIN_PHONE, phoneVerifiedSource: 'mock', authSource: 'wechat' },
+    { phone: ADMIN_PHONE, phoneVerifiedSource: 'wechat', authSource: 'dev_mock' },
+  ])('旧号码或模拟来源不能通过手机白名单: %p', (user) => {
+    process.env.ADMIN_PHONES = ADMIN_PHONE;
+    expect(isAdminUser(user)).toBe(false);
+  });
+
+  test('ID 白名单独立于手机号可信状态和模拟身份', () => {
+    process.env.ADMIN_USER_IDS = ADMIN_ID;
+    expect(isAdminUser({ _id: ADMIN_ID, phone: ADMIN_PHONE, authSource: 'dev_mock', phoneVerifiedSource: 'mock' })).toBe(true);
   });
 
   test('用户 ID 命中白名单', () => {
@@ -60,8 +75,8 @@ describe('isAdminUser', () => {
 
   test('多个白名单项按逗号分隔，容忍空格', () => {
     process.env.ADMIN_PHONES = ` 13000000000 , ${ADMIN_PHONE} ,`;
-    expect(isAdminUser({ phone: ADMIN_PHONE })).toBe(true);
-    expect(isAdminUser({ phone: '13000000000' })).toBe(true);
+    expect(isAdminUser({ phone: ADMIN_PHONE, phoneVerifiedSource: 'wechat' })).toBe(true);
+    expect(isAdminUser({ phone: '13000000000', phoneVerifiedSource: 'wechat' })).toBe(true);
   });
 
   // 白名单是每次调用时读环境变量的，改配置不用重启进程外的东西
@@ -69,6 +84,6 @@ describe('isAdminUser', () => {
     process.env.ADMIN_PHONES = '';
     expect(isAdminUser({ phone: ADMIN_PHONE })).toBe(false);
     process.env.ADMIN_PHONES = ADMIN_PHONE;
-    expect(isAdminUser({ phone: ADMIN_PHONE })).toBe(true);
+    expect(isAdminUser({ phone: ADMIN_PHONE, phoneVerifiedSource: 'wechat' })).toBe(true);
   });
 });
