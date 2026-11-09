@@ -42,6 +42,13 @@ describe('wechatConfig.hasCredentials', () => {
 });
 
 describe('_shouldUseMockLogin', () => {
+  test.each([undefined, 'staging'])('未明确隔离的环境 %p 禁止模拟', (environment) => {
+    if (environment === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = environment;
+    setCredentials('your_app_id', 'your_app_secret');
+    process.env.ALLOW_MOCK_LOGIN = 'true';
+    expect(userService._shouldUseMockLogin()).toBe(false);
+  });
   test('生产环境凭证缺失时绝不降级', () => {
     process.env.NODE_ENV = 'production';
     setCredentials('wx1234567890abcdef', 'your_app_secret');

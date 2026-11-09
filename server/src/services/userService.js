@@ -232,7 +232,7 @@ class UserService {
   // 凭证缺失的模拟登录只允许非生产环境，生产环境不能用开关绕过。
   // 生产环境宁可让登录报错，也不能悄悄发一个换了人的身份出去。
   _shouldUseMockLogin() {
-    if (process.env.NODE_ENV === 'production') return false;
+    if (!['development', 'test'].includes(process.env.NODE_ENV)) return false;
     if (this._hasWechatCredentials()) {
       return process.env.ALLOW_MOCK_LOGIN === 'true';
     }
