@@ -32,3 +32,31 @@ test('default CLI cannot connect or apply without an explicit read source', () =
     expect(result.stdout).toBe('');
   }
 });
+
+test('mongo preview disables writes from actual User model initialization', () => {
+  const script = `
+    const mongoose = require('mongoose');
+    const writes = [];
+    mongoose.Model.createCollection = async () => { writes.push('createCollection'); };
+    mongoose.Model.ensureIndexes = async () => { writes.push('ensureIndexes'); };
+    mongoose.Model.find = () => ({ select: () => ({ lean: async () => [] }) });
+    mongoose.connect = async (_uri, options) => {
+      Object.assign(mongoose.connection.config, options);
+      mongoose.connection.readyState = 1;
+      mongoose.connection.emit('connected');
+      for (const queued of mongoose.connection._queue.splice(0)) queued.fn();
+    };
+    mongoose.disconnect = async () => {};
+    process.env.MONGODB_URI = 'mongodb://unused/readonly';
+    const { main } = require('./scripts/preview-admins');
+    main(['--mongo']).then(async () => {
+      await mongoose.model('User').init();
+      console.log(JSON.stringify(writes));
+    }).catch(error => { console.error(error); process.exitCode = 1; });
+  `;
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 10000,
+  });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout.trim())).toEqual([]);
+});

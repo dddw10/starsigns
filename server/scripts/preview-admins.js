@@ -35,7 +35,7 @@ async function main(args) {
     const mongoose = require('mongoose');
     const User = require('../src/models/User');
     try {
-      await mongoose.connect(process.env.MONGODB_URI, { autoIndex: false, serverSelectionTimeoutMS: 5000 });
+      await mongoose.connect(process.env.MONGODB_URI, { autoIndex: false, autoCreate: false, serverSelectionTimeoutMS: 5000 });
       const users = await User.find({ $or: [{ phone: { $exists: true, $ne: '' } }, { _id: { $in: [...configuredIds()] } }] })
         .select('_id phone authSource phoneVerifiedSource').lean();
       return buildAdminPreview(users);
@@ -51,4 +51,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildAdminPreview };
+module.exports = { buildAdminPreview, main };
