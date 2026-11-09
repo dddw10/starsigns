@@ -1,127 +1,84 @@
 import os
+from pathlib import Path
+import re
+import shlex
 import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 import paramiko
 
-# 1. 运行本地打包
-print("==========================================")
-print("1. 正在运行本地打包 build-and-pack.js...")
-print("==========================================")
-
-try:
-    result = subprocess.run(["node", "build-and-pack.js"], check=True, capture_output=True, text=True)
-    print(result.stdout)
-except subprocess.CalledProcessError as e:
-    print("本地编译打包失败:")
-    print(e.stderr)
-    exit(1)
-
-# 2. 准备上传和SSH连接参数
-host = os.environ.get("DEPLOY_HOST")
-port = int(os.environ.get("DEPLOY_PORT", "22"))
-username = os.environ.get("DEPLOY_USER")
-password = os.environ.get("DEPLOY_PASSWORD")
-key_filename = os.environ.get("DEPLOY_KEY_PATH")
-local_zip = "server-deploy.tar.gz"
-remote_dir = "/opt/fortune-server"
-remote_zip = f"{remote_dir}/{local_zip}"
-
-if not host or not username:
-    raise RuntimeError("Set DEPLOY_HOST and DEPLOY_USER before deploying.")
-
-connect_options = {"hostname": host, "port": port, "username": username}
-if key_filename:
-    connect_options["key_filename"] = key_filename
-elif password:
-    connect_options["password"] = password
-else:
-    raise RuntimeError("Set DEPLOY_KEY_PATH or DEPLOY_PASSWORD before deploying.")
+ROOT = Path(__file__).resolve().parent
 
 
-print("==========================================")
-print("2. 正在通过 SFTP 上传部署包到云服务器...")
-print("==========================================")
+def remote_exec(ssh, command, source=None):
+    stdin, stdout, stderr = ssh.exec_command(command)
+    if source is not None:
+        stdin.write(source)
+        stdin.flush()
+        stdin.channel.shutdown_write()
+    # 同时排空两个流，避免先等退出状态时填满 SSH channel 窗口。
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        out = pool.submit(stdout.read)
+        err = pool.submit(stderr.read)
+        output, errors = out.result(), err.result()
+    status = stdout.channel.recv_exit_status()
+    if output:
+        print(output.decode('utf-8', errors='replace'))
+    if errors:
+        print(errors.decode('utf-8', errors='replace'), file=sys.stderr)
+    if status != 0:
+        raise RuntimeError(f'Remote command failed ({status})')
 
-try:
-    # 建立 SSH 传输通道
-    transport = paramiko.Transport((host, port))
-    if key_filename:
-        private_key = paramiko.RSAKey.from_private_key_file(key_filename)
-        transport.connect(username=username, pkey=private_key)
-    else:
-        transport.connect(username=username, password=password)
-    
-    # 建立 SFTP
-    sftp = paramiko.SFTPClient.from_transport(transport)
-    
-    # 确保远端目录存在
-    try:
-        sftp.mkdir(remote_dir)
-        print(f"创建远端目录: {remote_dir}")
-    except IOError:
-        pass  # 目录已存在
-        
-    print(f"正在上传 {local_zip} -> {remote_zip}...")
-    sftp.put(local_zip, remote_zip)
-    print("上传部署包成功！")
-    sftp.close()
-    transport.close()
-except Exception as e:
-    print(f"SFTP 上传失败: {e}")
-    exit(1)
 
-print("==========================================")
-print("3. 正在登录服务器解压并启动 Docker 容器...")
-print("==========================================")
-
-try:
-    # 建立 SSH 连接
+def main():
+    env = os.environ
+    host, user = env.get('DEPLOY_HOST', ''), env.get('DEPLOY_USER', '')
+    if not re.fullmatch(r'[a-zA-Z0-9.:-]+', host) or not re.fullmatch(r'[a-zA-Z0-9_-]+', user):
+        raise RuntimeError('Set valid DEPLOY_HOST and DEPLOY_USER')
+    if any(arg != '--dry-run' for arg in sys.argv[1:]):
+        raise RuntimeError('Usage: python deploy_helper.py [--dry-run]')
+    port = int(env.get('DEPLOY_PORT', '22'))
+    if not 1 <= port <= 65535:
+        raise RuntimeError('Invalid DEPLOY_PORT')
+    options = {'hostname': host, 'port': port, 'username': user, 'timeout': 15, 'auth_timeout': 15, 'banner_timeout': 15}
+    if env.get('DEPLOY_KEY_PATH'):
+        options['key_filename'] = env['DEPLOY_KEY_PATH']
+    elif env.get('DEPLOY_PASSWORD'):
+        options['password'] = env['DEPLOY_PASSWORD']
+    remote_dir = env.get('APP_DIR', '/opt/fortune-server')
+    env_file = env.get('DEPLOY_ENV_FILE', '.env.production')
+    compose_file = env.get('DEPLOY_COMPOSE_FILE', 'docker-compose.prod.yml')
+    quote = shlex.quote
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(**connect_options)
-    
-    # compose 文件里的 ${MONGO_ROOT_PASSWORD}/${REDIS_PASSWORD} 不会从 env_file 取值，
-    # 必须显式 --env-file，否则会当成空字符串（compose 那边写了 :? 会直接报错退出）。
-    # deploy.js 一直是这么做的，这里以前漏了——走 Python 这条路部署会卡在 compose 阶段。
-    # .env.production 与 docker-compose.prod.yml 都是服务器上手工维护的、打包时被排除
-    # （原因见 build-and-pack.js 里的注释），所以先确认它们都在。
-    compose_args = "--env-file .env.production -f docker-compose.prod.yml"
-    ssh_cmd = (
-        f"cd {remote_dir} && "
-        'if [ ! -f .env.production ]; then '
-        'echo "缺少 /opt/fortune-server/.env.production，'
-        '请参考仓库里的 server/.env.production.example 创建后重试"; exit 1; fi && '
-        'if [ ! -f docker-compose.prod.yml ]; then '
-        'echo "缺少 /opt/fortune-server/docker-compose.prod.yml，'
-        '它由服务器自己维护、不在部署包里，请先确认基础设施配置存在"; exit 1; fi && '
-        "if [ -d src ]; then rm -rf src_bak; mv src src_bak; fi && "
-        "if [ -d public ]; then rm -rf public_bak; mv public public_bak; fi && "
-        # 产物是 gzip tar 而不是 zip（见 build-and-pack.js 里的注释），必须用 tar 而不是 unzip
-        f"tar -xzf {local_zip} && "
-        f"docker compose {compose_args} build --no-cache && "
-        f"docker compose {compose_args} up -d && "
-        f"docker compose {compose_args} ps"
-    )
-    
-    print(f"运行远端指令: {ssh_cmd}")
-    stdin, stdout, stderr = ssh.exec_command(ssh_cmd)
-    
-    # 等待命令执行完毕并获取输出
-    exit_status = stdout.channel.recv_exit_status()
-    
-    print("\n[远端标准输出]:")
-    print(stdout.read().decode('utf-8'))
-    
-    print("[远端标准错误]:")
-    print(stderr.read().decode('utf-8'))
-    
-    if exit_status == 0:
-        print("==========================================")
-        print("云端部署更新顺利完成！")
-        print("==========================================")
-    else:
-        print(f"远端执行失败，退出状态码: {exit_status}")
-        
-    ssh.close()
-except Exception as e:
-    print(f"SSH 远端部署失败: {e}")
-    exit(1)
+    try:
+        ssh.load_system_host_keys()
+        if env.get('DEPLOY_KNOWN_HOSTS'):
+            ssh.load_host_keys(env['DEPLOY_KNOWN_HOSTS'])
+        ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+        ssh.connect(**options)
+        proxy = (ROOT / 'server/src/config/proxy.js').read_text(encoding='utf-8').replace('module.exports = { trustedProxies };', '')
+        preflight = (ROOT / 'server/scripts/deploy-preflight.js').read_text(encoding='utf-8')
+        preflight = re.sub(r'^#![^\n]*\n', '', preflight).replace("const { trustedProxies } = require('../src/config/proxy');", proxy)
+        remote_exec(ssh, f'cd {quote(remote_dir)} && node - --env-file {quote(env_file)} -f {quote(compose_file)}', preflight)
+        if '--dry-run' in sys.argv:
+            return
+        subprocess.run(['node', 'build-and-pack.js'], cwd=ROOT, check=True)
+        sftp = ssh.open_sftp()
+        try:
+            sftp.put(str(ROOT / 'server-deploy.tar.gz'), f'{remote_dir}/server-deploy.tar.gz')
+        finally:
+            sftp.close()
+        script = (ROOT / 'server/scripts/deploy-remote.sh').read_text(encoding='utf-8')
+        remote_exec(ssh, f'APP_DIR={quote(remote_dir)} DEPLOY_ENV_FILE={quote(env_file)} DEPLOY_COMPOSE_FILE={quote(compose_file)} sh -s', script)
+        print('Deployment complete')
+    finally:
+        ssh.close()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        # 验证异常只报告类型，避免凭据或远端错误内容被回显。
+        print(f'Deployment failed: {type(error).__name__}', file=sys.stderr)
+        sys.exit(1)

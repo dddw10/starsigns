@@ -106,117 +106,22 @@ server/
 
 ## 部署说明
 
-### 无域名先部署到云服务器
+先阅读 [部署预检、数据库鉴权与回滚手册](../docs/operations/deployment.md)。远端 Compose 和环境文件独立维护，不随应用包覆盖；已有 Mongo 卷须先备份、创建或核验独立应用账户，再启用鉴权。生产模板保留 Mongo 6.0、`mongo` 服务和 `mongo-data` 卷，不可用根目录 Mongo 7 模板覆盖。
 
-如果当前只是先跑通后端，可以先使用服务器公网 IP，不必立刻上域名：
+在已准备好真实配置的应用目录做脱敏预检：
 
-1. 复制环境变量文件
-
-```bash
-cp .env.production.example .env.production
+```sh
+APP_DIR=/opt/fortune-server DEPLOY_ENV_FILE=.env.production DEPLOY_COMPOSE_FILE=docker-compose.prod.yml sh ./deploy-cloud.sh --dry-run
 ```
 
-2. 修改 `.env.production`
+本地入口 `node deploy.js --dry-run` 或 `python deploy_helper.py --dry-run` 使用相同文件参数，并严格验证 known_hosts。三入口均先预检，缺文件或占位凭据即停止，不自动复制环境示例。真实发布在维护者核对备份、端口和连接验收后才去掉 `--dry-run`。
 
-至少先改这些值：
-
-```bash
-BASE_URL=http://你的服务器公网IP:3000
-JWT_SECRET=一串足够长的随机字符串
-WECHAT_APP_ID=你的小程序 appid
-WECHAT_APP_SECRET=你的小程序 secret
-```
-
-`WECHAT_APP_ID` 和 `WECHAT_APP_SECRET` **必须同时配齐**。缺一项或留占位值时，生产环境的 `POST /api/user/login` 会直接返回 503（启动日志里也会点名），**不会**降级成 mock 登录 —— mock 的 openid 由一次性 `code` 派生，每次冷启动都是一个新用户，线上表现就是用户的生辰、历史记录、神兽全部对不上。
-
-3. 准备证书目录
-
-```bash
-mkdir -p certs logs
-```
-
-如果暂时不用微信支付，可以先不放支付证书。
-
-4. 使用 Docker Compose 启动整套服务
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-5. 检查服务状态
-
-```bash
-docker compose -f docker-compose.prod.yml ps
-curl http://127.0.0.1:3000/health
-```
-
-6. 开放服务器安全组端口
-
-至少放行：
-
-- `3000`：后端接口
-- `22`：SSH 登录
-
-7. 小程序开发调试时，把前端请求地址改成服务器公网 IP
-
-例如：
-
-```bash
-http://你的服务器公网IP:3000
-```
-
-注意：这只适合先联调。后续上线体验版和正式版，仍然需要域名和 HTTPS。
-
-### 1. 准备工作
-
-1. 注册微信小程序账号
-2. 申请微信支付商户号
-3. 准备域名和 SSL 证书
-4. 安装 MongoDB 和 Redis
-
-### 2. 配置环境变量
-
-编辑 `.env` 文件，填写以下配置：
-
-- 微信小程序 AppID 和 AppSecret
-- 微信支付商户号和 API 密钥
-- MongoDB 和 Redis 连接信息
-- JWT 密钥
-
-### 3. 部署服务
-
-```bash
-# 安装依赖
-npm install
-
-# 启动服务
-npm run pm2:start
-```
-
-### 4. 配置 Nginx
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name api.your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+Node / PM2 默认仅监听 `127.0.0.1`。Docker 模板在容器内设置 `BIND_HOST=0.0.0.0`，宿主仍仅发布到本机；不要开放 3000、27017、6379 到公网。宿主 Nginx 与容器 Nginx 使用不同上游路径，`TRUST_PROXY` 必须按 Node 实际看到的代理 IP/CIDR 配置，不能照抄固定跳数。临时联调通过已核验主机的 SSH 本地转发；正式小程序使用 HTTPS 域名。
 
 ## 注意事项
 
 1. 微信支付需要配置证书文件
-2. 生产环境请修改 JWT 密钥
+2. 新部署设置足够长的随机 JWT 密钥；已有实例保留现有值，本次不轮换
 3. 建议开启 Redis 集群提高可用性
 4. 定期备份 MongoDB 数据
 

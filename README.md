@@ -323,11 +323,14 @@ npm run build:mp-weixin
 
 ### Docker 部署
 
+先按 [部署与数据库鉴权手册](docs/operations/deployment.md) 核验现有卷、账户和代理拓扑。两份 Compose 分别保留原 Mongo 7 / 6.0 和原卷名，不能相互覆盖；已有卷必须单独建应用账户。本地模板不会随应用包覆盖远端配置。
+
 ```bash
-docker-compose --env-file server/.env.production up -d
+# 仓库根目录：仅做脱敏预检，不启动容器
+node server/scripts/deploy-preflight.js --env-file server/.env.production -f docker-compose.yml
 ```
 
-`docker-compose.yml` 里的 `${VAR}` 不会从 `env_file` 取值，必须显式带 `--env-file`。
+远端应用发布可用 `node deploy.js --dry-run`、`python deploy_helper.py --dry-run` 或服务器上的 `deploy-cloud.sh --dry-run`，连接参数与正式发布步骤见手册。预检通过只表示配置有效，不代替数据库连接和外部端口验收。Node 宿主进程默认只监听本机，容器通过显式绑定配合本机端口发布；对外入口使用已核验的 Nginx。
 
 ## 免责声明
 

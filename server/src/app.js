@@ -20,9 +20,10 @@ const wechatConfig = require('./config/wechat');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
 
-// nginx 反代在前：不设置的话 req.ip 全站都是同一个网关 IP，限流形同虚设
-app.set('trust proxy', 1);
+// 仅信任维护者核验的代理地址，默认忽略可伪造的转发头。
+app.set('trust proxy', require('./config/proxy').trustedProxies(process.env.TRUST_PROXY));
 // 接口都是 JSON，不靠 ETag 省流；开着会回 304 空 body，客户端只认 200 → 报「服务器错误: 304」
 app.set('etag', false);
 
@@ -196,7 +197,7 @@ async function bootstrap() {
       console.warn('定时任务启动失败:', e.message);
     }
 
-    app.listen(PORT, () => {
+    app.listen(PORT, BIND_HOST, () => {
       console.log(`算命小程序后端服务已启动，端口: ${PORT}`);
     });
   } catch (error) {

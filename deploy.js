@@ -1,58 +1,37 @@
-const { execSync, spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { spawnSync } = require('child_process');
 
-const deployHost = process.env.DEPLOY_HOST;
-const deployUser = process.env.DEPLOY_USER;
+const quote = value => `'${String(value).replace(/'/g, `'"'"'`)}'`;
 
-if (!deployHost || !deployUser) {
-  throw new Error('Set DEPLOY_HOST and DEPLOY_USER before deploying.');
+function main() {
+  const env = process.env;
+  if (!env.DEPLOY_HOST || !env.DEPLOY_USER || !/^[a-zA-Z0-9.:-]+$/.test(env.DEPLOY_HOST) || !/^[a-zA-Z0-9_-]+$/.test(env.DEPLOY_USER)) throw new Error('Set valid DEPLOY_HOST and DEPLOY_USER');
+  const dryRun = process.argv.includes('--dry-run');
+  if (process.argv.slice(2).some(arg => arg !== '--dry-run')) throw new Error('Usage: node deploy.js [--dry-run]');
+  const remoteDir = env.APP_DIR || '/opt/fortune-server';
+  const envFile = env.DEPLOY_ENV_FILE || '.env.production';
+  const composeFile = env.DEPLOY_COMPOSE_FILE || 'docker-compose.prod.yml';
+  const target = `${env.DEPLOY_USER}@${env.DEPLOY_HOST}`;
+  const options = ['-o', 'StrictHostKeyChecking=yes'];
+  if (env.DEPLOY_KNOWN_HOSTS) options.push('-o', `UserKnownHostsFile=${env.DEPLOY_KNOWN_HOSTS}`);
+  if (env.DEPLOY_KEY_PATH) options.push('-i', env.DEPLOY_KEY_PATH);
+  const port = env.DEPLOY_PORT || '22';
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw new Error('Invalid DEPLOY_PORT');
+  const run = (command, args, input) => {
+    const result = spawnSync(command, args, { cwd: __dirname, stdio: input ? ['pipe', 'inherit', 'inherit'] : 'inherit', input });
+    if (result.error || result.status !== 0) throw new Error(`${command} failed`);
+  };
+  const proxy = fs.readFileSync(path.join(__dirname, 'server/src/config/proxy.js'), 'utf8').replace('module.exports = { trustedProxies };', '');
+  const preflight = fs.readFileSync(path.join(__dirname, 'server/scripts/deploy-preflight.js'), 'utf8')
+    .replace(/^#!.*\n/, '').replace("const { trustedProxies } = require('../src/config/proxy');", proxy);
+  run('ssh', [...options, '-p', port, target, `cd ${quote(remoteDir)} && node - --env-file ${quote(envFile)} -f ${quote(composeFile)}`], preflight);
+  if (dryRun) return;
+  run(process.execPath, ['build-and-pack.js']);
+  run('scp', [...options, '-P', port, 'server-deploy.tar.gz', `${target}:${remoteDir}/server-deploy.tar.gz`]);
+  const script = fs.readFileSync(path.join(__dirname, 'server/scripts/deploy-remote.sh'), 'utf8');
+  run('ssh', [...options, '-p', port, target, `APP_DIR=${quote(remoteDir)} DEPLOY_ENV_FILE=${quote(envFile)} DEPLOY_COMPOSE_FILE=${quote(composeFile)} sh -s`], script);
+  console.log('Deployment complete');
 }
 
-console.log('==========================================');
-console.log('开始双端编译、打包并上传部署到云服务器...');
-console.log('==========================================');
-
-try {
-  // 1. 编译打包
-  console.log('\n[1/3] 正在本地执行编译打包...');
-  execSync('node build-and-pack.js', { stdio: 'inherit' });
-
-  // 2. 上传部署包
-  console.log('\n[2/3] 正在上传部署包到云服务器...');
-  console.log('提示: 请根据提示输入 root 用户的登录密码（如果配置了免密 Key，则会自动登录）。\n');
-  const scpResult = spawnSync('scp', ['server-deploy.tar.gz', `${deployUser}@${deployHost}:/opt/fortune-server/`], { stdio: 'inherit' });
-  if (scpResult.status !== 0) {
-    throw new Error('上传部署包失败！');
-  }
-
-  // 3. 远端部署
-  console.log('\n[3/3] 上传成功！正在登录服务器解压并启动 Docker 容器...');
-  console.log('提示: 请再次输入 root 密码以运行远端指令。\n');
-  // compose 文件里的 ${MONGO_ROOT_PASSWORD}/${REDIS_PASSWORD} 不会从 env_file 取值，
-  // 必须显式 --env-file，否则会当成空字符串（compose 那边已加 :? 会直接报错退出）。
-  // .env.production 与 docker-compose.prod.yml 都是服务器上手工维护的，打包时被排除
-  // （原因见 build-and-pack.js 里的注释），所以先确认它们都在。
-  const composeArgs = '--env-file .env.production -f docker-compose.prod.yml';
-  const sshCmd = [
-    'cd /opt/fortune-server',
-    'if [ ! -f .env.production ]; then echo "缺少 /opt/fortune-server/.env.production，请参考仓库里的 server/.env.production.example 创建后重试"; exit 1; fi',
-    'if [ ! -f docker-compose.prod.yml ]; then echo "缺少 /opt/fortune-server/docker-compose.prod.yml，它由服务器自己维护、不在部署包里，请先确认基础设施配置存在"; exit 1; fi',
-    'if [ -d src ]; then rm -rf src_bak; mv src src_bak; fi',
-    'if [ -d public ]; then rm -rf public_bak; mv public public_bak; fi',
-    // 产物是 gzip tar 而不是 zip（见 build-and-pack.js 里的注释），所以这里必须用 tar 而不是 unzip
-    'tar -xzf server-deploy.tar.gz',
-    `docker compose ${composeArgs} up -d --build`,
-    `docker compose ${composeArgs} ps`
-  ].join(' && ');
-  const sshResult = spawnSync('ssh', [`${deployUser}@${deployHost}`, sshCmd], { stdio: 'inherit' });
-  if (sshResult.status !== 0) {
-    throw new Error('远端部署指令执行失败！');
-  }
-
-  console.log('\n==========================================');
-  console.log('云端部署更新顺利完成！');
-  console.log('==========================================');
-
-} catch (error) {
-  console.error('\n部署失败:', error.message);
-  process.exit(1);
-}
+try { main(); } catch (error) { console.error(`Deployment failed: ${error.message}`); process.exit(1); }

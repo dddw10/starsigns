@@ -69,7 +69,7 @@ try {
   // 坏一点是有人为了消掉报错随手补上 MONGO_ROOT_PASSWORD，mongo 带 --auth 重启，
   // 应用再也连不上一个装着真实用户的库。
   // 要收紧基础设施必须是一次单独、有备份、有回滚的动作，不能挂在发版链路上。
-  const tarCmd = 'tar.exe -a -c -f ../server-deploy.tar.gz --exclude="node_modules" --exclude="logs" --exclude=".env" --exclude=".env.*" --exclude="docker-compose*.yml" .';
+  const tarCmd = 'tar.exe -a -c -f ../server-deploy.tar.gz --exclude="node_modules" --exclude="logs" --exclude=".env" --exclude=".env.*" --exclude="*.env" --exclude="docker-compose*.yml" --exclude="docker-compose*.yaml" --exclude="certs" --exclude="secrets" --exclude="credentials" --exclude="*.pem" --exclude="*.key" --exclude="*.p12" --exclude="*.pfx" --exclude="id_rsa*" --exclude="id_ed25519*" --exclude="id_ecdsa*" --exclude="id_dsa*" .';
   execSync(tarCmd, { cwd: path.join(__dirname, 'server'), stdio: 'inherit' });
 
   // 就地验一次真的是 gzip tar，别再让「名字对、格式不对」的包流到服务器上
