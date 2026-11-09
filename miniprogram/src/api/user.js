@@ -3,12 +3,12 @@ import { get, post, put, del } from './request.js'
 // 微信登录
 // skipSessionGate：登录请求不能等「登录完成」，否则自己等自己
 export function loginApi(data) {
-  return post('/api/user/login', data, { skipSessionGate: true })
+  return post('/api/user/login', data, { skipSessionGate: true, skipAutoRecovery: true, guest: true, timeout: 10000 })
 }
 
 // 获取用户信息
-export function getUserInfoApi() {
-  return get('/api/user/profile')
+export function getUserInfoApi(options = {}) {
+  return get('/api/user/profile', {}, options)
 }
 
 // 更新用户信息
@@ -83,17 +83,17 @@ export function bindPhoneApi(data) {
 
 // H5 注册
 export function registerApi(data) {
-  return post('/api/user/register', data, { skipSessionGate: true })
+  return post('/api/user/register', data, { skipSessionGate: true, skipAutoRecovery: true, guest: true, timeout: 10000 })
 }
 
 // H5 账号登录
 export function loginAccountApi(data) {
-  return post('/api/user/login-account', data, { skipSessionGate: true })
+  return post('/api/user/login-account', data, { skipSessionGate: true, skipAutoRecovery: true, guest: true, timeout: 10000 })
 }
 
 // 获取系统配置
 export function getSystemConfigApi() {
-  return get('/api/config')
+  return get('/api/config', {}, { skipSessionGate: true, skipAutoRecovery: true, guest: true, timeout: 6000 })
 }
 
 // 管理员：切换审核模式

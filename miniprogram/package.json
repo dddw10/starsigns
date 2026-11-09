@@ -4,6 +4,7 @@
   "description": "微信小程序算命应用",
   "main": "main.js",
   "scripts": {
+    "test": "node --experimental-vm-modules --test tests/session.test.cjs tests/pages.test.cjs",
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
     "dev:h5": "uni -p h5",

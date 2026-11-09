@@ -1,11 +1,15 @@
 <template>
   <view class="page-container" :class="themeClass">
+    <view v-if="userStore.sessionStatus === 'restoring'">正在恢复登录…</view>
+    <view v-if="userStore.sessionStatus === 'failed'" @click="retrySession">{{ userStore.sessionError }} · 点击重试</view>
+    <view v-if="dailyError" @click="retrySession">{{ dailyError }} · 点击重试</view>
+    <view v-if="userStore.systemConfigStatus === 'failed'" @click="userStore.ensureSystemConfig()">功能配置加载失败 · 点击重试</view>
     <view class="header">
       <view class="greeting">
         <view class="title-row">
           <text class="title">今日能量</text>
           <button 
-            v-if="!hasCheckedIn"
+            v-if="isLoggedIn && !hasCheckedIn"
             class="checkin-btn" 
             @click="handleCheckIn"
           >
@@ -18,7 +22,7 @@
     </view>
 
     <!-- 情况 A：已设置生日密码，显示个性化运势 -->
-    <view class="fortune-card" v-if="hasBirthInfo" @click="openBirthDrawer">
+    <view class="fortune-card" v-if="hasBirthInfo && todayFortune" @click="openBirthDrawer">
       <view class="card-header">
         <text class="card-title">专属灵感 ({{ todayFortune.score }}分 - {{ todayFortune.levelName }})</text>
         <view class="rating">
@@ -200,7 +204,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { onShow, onPullDownRefresh } from '@dcloudio/uni-app'
+import { onShow, onHide, onUnload, onPullDownRefresh } from '@dcloudio/uni-app'
 import { useThemeStore } from '@/store/theme'
 import { usePushStore } from '@/store/push'
 import { useUserStore } from '@/store/user'
@@ -213,6 +217,7 @@ import PrivacyPopup from '@/components/PrivacyPopup.vue'
 const themeStore = useThemeStore()
 const pushStore = usePushStore()
 const userStore = useUserStore()
+let pageVisible = true
 
 const isLoggedIn = computed(() => userStore.isLoggedIn)
 const petData = ref(null)
@@ -302,8 +307,10 @@ const goToUserCenter = () => {
 
 const loadPetStatus = async () => {
   if (!isLoggedIn.value) return
+  const version = userStore.sessionVersion
   try {
     const res = await getPetStatusApi()
+    if (version !== userStore.sessionVersion) return
     if (res.code === 0) {
       petData.value = res.data
     }
@@ -433,6 +440,8 @@ const onAssistantEnd = () => {
 }
 
 onShow(() => {
+  pageVisible = true
+  loadDailyFortune()
   // 推送发出后配额就少一条，从微信「设置-订阅消息」改过授权也一样：
   // 回到首页必须重新拉一次，否则横幅和「剩 N 次」都是旧的
   if (isLoggedIn.value) {
@@ -447,6 +456,8 @@ onShow(() => {
     resetIdleTimer()
   }
 })
+onHide(() => { pageVisible = false })
+onUnload(() => { pageVisible = false })
 
 // 推送状态一律以服务端为准：pushEnabled 只是「还有没有配额」的结论，
 // 不再是 localStorage 里那个永远为 true 的布尔值
@@ -604,17 +615,8 @@ const todayDate = computed(() => {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
 })
 
-const todayFortune = ref({
-  score: 80,
-  levelName: '不错',
-  rating: 4,
-  yi: ['签约', '出行', '学习', '建群'],
-  ji: ['争吵', '熬夜', '过度消费'],
-  luckyColor: '#c41e3a',
-  luckyColorName: '红色',
-  luckyNumber: 8,
-  overall: ''
-})
+const todayFortune = ref(null)
+const dailyError = ref('')
 
 const services = [
   { id: 'bazi', name: '生日密码', desc: '性格分析', icon: '📿', page: '/pages/bazi/index' },
@@ -822,8 +824,12 @@ const saveBirthInfo = async () => {
 }
 
 const loadDailyFortune = async () => {
+  const version = userStore.sessionVersion
+  dailyError.value = ''
   try {
-    const res = await getDailyFortuneApi()
+    const guest = userStore.sessionStatus === 'logged_out'
+    const res = await getDailyFortuneApi({}, guest ? { guest: true, skipSessionGate: true, skipAutoRecovery: true } : {})
+    if (version !== userStore.sessionVersion) return
     const data = res.data
     if (data) {
       const levelMap = {
@@ -846,9 +852,20 @@ const loadDailyFortune = async () => {
       }
     }
   } catch (err) {
-    console.log('使用默认运势数据:', err)
+    if (version !== userStore.sessionVersion) return
+    todayFortune.value = null
+    dailyError.value = err.message || '个人灵感加载失败'
   }
 }
+
+const retrySession = async () => {
+  const result = await userStore.restoreSession({ retry: true })
+  if (result.success || userStore.sessionStatus === 'logged_out') loadDailyFortune()
+}
+watch(() => [userStore.sessionStatus, userStore.sessionVersion], () => {
+  if (!userStore.isLoggedIn) { todayFortune.value = null; petData.value = null; return }
+  if (pageVisible) { loadDailyFortune(); loadPetStatus(); pushStore.refresh() }
+})
 
 onPullDownRefresh(async () => {
   try {

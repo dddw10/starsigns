@@ -17,7 +17,7 @@ export function getBaziDetailApi(id) {
 
 // 获取星座灵感
 export function getConstellationFortuneApi(constellation, params) {
-  return get(`/api/fortune/constellation/${constellation}`, params)
+  return get(`/api/fortune/constellation/${constellation}`, params, { guest: true, skipSessionGate: true, skipAutoRecovery: true })
 }
 
 // 获取所有星座列表
@@ -76,8 +76,8 @@ export function deleteFortuneRecordApi(id) {
 }
 
 // 每日灵感
-export function getDailyFortuneApi(params) {
-  return get('/api/fortune/daily', params)
+export function getDailyFortuneApi(params, options = {}) {
+  return get('/api/fortune/daily', params, options)
 }
 
 // 面相手相分析

@@ -1,5 +1,5 @@
 <template>
-  <view class="page-container" :class="themeClass">
+  <view class="page-container" :class="themeClass" v-if="userStore.systemConfigLoaded && !userStore.auditMode">
     
     <!-- Tab 切换 -->
     <view class="tab-container" v-if="!result && !loading">
@@ -283,6 +283,7 @@
       <text>本结果基于数理喜用神与日干性格剖析，仅供娱乐参考</text>
     </view>
   </view>
+  <view v-else class="page-container" @click="blockedByAuditMode">{{ userStore.systemConfigLoaded ? '该功能当前未开放' : '功能配置未就绪，点击重试' }}</view>
 </template>
 
 <script setup>
@@ -290,11 +291,12 @@ import { ref, computed, onMounted } from 'vue'
 import { calcBaziApi, baziMatchApi } from '@/api/fortune'
 import { updateBirthInfoApi } from '@/api/user'
 import { useUserStore } from '@/store/user'
-import { blockedByAuditMode } from '@/utils/auditGuard'
+import { useAuditGuard } from '@/utils/auditGuard'
 import { GAN_WUXING } from './utils/bazi-calc'
 import { calcBaziChart, formatBaziChart } from './utils/bazi-chart'
 
 const userStore = useUserStore()
+const checkAuditMode = useAuditGuard()
 const activeTab = ref('single')
 
 // 单人测算状态
@@ -363,9 +365,9 @@ const localBaziPreview = computed(() => {
   }
 })
 
-onMounted(async () => {
+const blockedByAuditMode = async () => {
   // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
-  if (await blockedByAuditMode()) return
+  if (await checkAuditMode()) return
   // 读取单人历史
   const lastInput = uni.getStorageSync('last_bazi_input')
   if (lastInput) {
@@ -400,7 +402,8 @@ onMounted(async () => {
   if (commonMatch) {
     commonBaziMatchList.value = commonMatch
   }
-})
+}
+onMounted(blockedByAuditMode)
 
 const fillForm = (item) => {
   birthDate.value = item.birthDate

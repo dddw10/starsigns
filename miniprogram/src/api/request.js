@@ -11,10 +11,21 @@ const BASE_URL = process.env.NODE_ENV === 'development'
 
 let unauthorizedHandler = null
 let sessionRecoveryPromise = null
+let sessionRecoveryVersion = null
 // 启动时的登录尚未完成时，先让业务请求等一下。
 // 否则小程序冷启动会出现「页面先发请求 → 没带令牌 → 拿到游客数据」，
 // 用户看到的是一份不属于自己的默认运势，看起来就像数据丢了
 let sessionReadyPromise = null
+let sessionContext = null
+
+function setSessionContext(getContext) { sessionContext = getContext }
+function getSessionVersion() { return sessionContext ? sessionContext().version : 0 }
+function isSessionCurrent(version) { return version === getSessionVersion() }
+function sessionError(code = 'SESSION_NOT_READY') {
+  const error = new Error(code === 'SESSION_CHANGED' ? '账号已切换，请重试' : '登录恢复未完成，请点击重试')
+  error.code = code
+  return error
+}
 
 function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler
@@ -22,50 +33,54 @@ function setUnauthorizedHandler(handler) {
 
 // 由 store 在启动登录开始时登记，登录结束（成功或失败）后自动放行
 function setSessionReadyPromise(promise) {
-  sessionReadyPromise = Promise.resolve(promise)
+  const pending = Promise.resolve(promise)
     .catch(() => null)
     .finally(() => {
-      sessionReadyPromise = null
+      if (sessionReadyPromise === pending) sessionReadyPromise = null
     })
+  sessionReadyPromise = pending
 }
 
-async function waitForSession(options) {
-  // 登录请求自己不能等自己，否则死锁
-  if (!sessionReadyPromise || options.skipSessionGate) return
-  try {
-    // 最多只等 6 秒：登录卡住（弱网、后端不通）时业务请求要照常发出去，
-    // 不能因为等登录把整个页面拖住——那就成了「页面卡死进不去」
-    await Promise.race([
-      sessionReadyPromise,
-      new Promise((resolve) => setTimeout(resolve, 6000))
-    ])
-  } catch (e) {
-    // 登录失败也要放行，让请求照常发出去、照常走 401 恢复
+async function waitForSession(options = {}) {
+  if (sessionReadyPromise && !options.skipSessionGate) {
+    let timer
+    try {
+      await Promise.race([
+        sessionReadyPromise,
+        new Promise((resolve, reject) => { timer = setTimeout(() => reject(sessionError()), 6000) })
+      ])
+    } finally { clearTimeout(timer) }
   }
+  if (!options.guest && !options.allowUnverifiedToken && sessionContext && sessionContext().status !== 'authenticated') throw sessionError()
 }
 
-async function recoverSession() {
+async function recoverSession(expectedVersion = getSessionVersion(), failedToken = '') {
+  if (!isSessionCurrent(expectedVersion)) return false
+  if (failedToken && sessionContext && sessionContext().status === 'authenticated' && sessionContext().token !== failedToken) return true
   if (!unauthorizedHandler) return false
 
-  if (!sessionRecoveryPromise) {
-    sessionRecoveryPromise = Promise.resolve(unauthorizedHandler())
+  if (!sessionRecoveryPromise || sessionRecoveryVersion !== expectedVersion) {
+    const pending = Promise.resolve().then(() => isSessionCurrent(expectedVersion) ? unauthorizedHandler() : false)
       .then(result => result === true)
       .catch(() => false)
       .finally(() => {
-        sessionRecoveryPromise = null
+        if (sessionRecoveryPromise === pending) sessionRecoveryPromise = null
       })
+    sessionRecoveryPromise = pending
+    sessionRecoveryVersion = expectedVersion
   }
 
-  return sessionRecoveryPromise
+  return await sessionRecoveryPromise && isSessionCurrent(expectedVersion)
 }
 
 // 请求封装
-async function request(options, canRetryAfterRecovery = true, canRetryOn304 = true) {
+async function request(options, canRetryAfterRecovery = true, canRetryOn304 = true, version = getSessionVersion()) {
   await waitForSession(options)
+  if (!isSessionCurrent(version)) throw sessionError('SESSION_CHANGED')
 
   return new Promise((resolve, reject) => {
     // 获取本地token
-    const token = uni.getStorageSync('user_token') || ''
+    const token = options.guest ? '' : (uni.getStorageSync('user_token') || '')
 
     // 统一请求头
     const header = {
@@ -85,6 +100,7 @@ async function request(options, canRetryAfterRecovery = true, canRetryOn304 = tr
       header,
       timeout: options.timeout || 30000,
       success: (res) => {
+        if (!isSessionCurrent(version)) { reject(sessionError('SESSION_CHANGED')); return }
         // HTTP状态码检查
         if (res.statusCode === 200) {
           const data = res.data
@@ -93,13 +109,13 @@ async function request(options, canRetryAfterRecovery = true, canRetryOn304 = tr
           if (data.code === 0) {
             resolve(data)
           } else if (data.code === 401) {
-            handleUnauthorized(options, canRetryAfterRecovery, resolve, reject)
+            handleUnauthorized(options, canRetryAfterRecovery, resolve, reject, version, token)
           } else {
             // 业务错误
             reject(new Error(data.message || '请求失败'))
           }
         } else if (res.statusCode === 401) {
-          handleUnauthorized(options, canRetryAfterRecovery, resolve, reject)
+          handleUnauthorized(options, canRetryAfterRecovery, resolve, reject, version, token)
         } else if (res.statusCode === 304) {
           // 304 的 body 是空的，直接走下面的分支会弹「服务器错误: 304」。
           // 服务端已经关掉 ETag，但中间可能还有代理/网关在协商缓存，
@@ -113,7 +129,7 @@ async function request(options, canRetryAfterRecovery = true, canRetryOn304 = tr
                 'Pragma': 'no-cache'
               }
             }
-            request(noCacheOptions, canRetryAfterRecovery, false).then(resolve, reject)
+            request(noCacheOptions, canRetryAfterRecovery, false, version).then(resolve, reject)
           } else {
             reject(new Error('数据未更新，请稍后重试'))
           }
@@ -132,14 +148,16 @@ async function request(options, canRetryAfterRecovery = true, canRetryOn304 = tr
 }
 
 // 处理未授权（token过期）
-async function handleUnauthorized(options, canRetryAfterRecovery, resolve, reject) {
-  const recovered = canRetryAfterRecovery && await recoverSession()
+async function handleUnauthorized(options, canRetryAfterRecovery, resolve, reject, version, token) {
+  const recovered = canRetryAfterRecovery && !options.skipAutoRecovery && await recoverSession(version, token)
   if (recovered) {
-    request(options, false).then(resolve, reject)
+    request(options, false, true, version).then(resolve, reject)
     return
   }
 
-  reject(new Error('登录已过期，请重新登录'))
+  const error = new Error('登录已过期，请重新登录')
+  error.code = 'AUTH_EXPIRED'
+  reject(error)
 }
 
 // GET请求
@@ -164,4 +182,4 @@ function del(url, data = {}, options = {}) {
 
 // recoverSession 也对外暴露：聊天页的 SSE 是手写的 wx.request，没走上面的统一封装，
 // 但 401 恢复必须共用同一个单飞（sessionRecoveryPromise），否则会同时发起两次换令牌
-export { request, get, post, put, del, BASE_URL, setUnauthorizedHandler, setSessionReadyPromise, recoverSession }
+export { request, get, post, put, del, BASE_URL, setUnauthorizedHandler, setSessionReadyPromise, setSessionContext, waitForSession, getSessionVersion, isSessionCurrent, recoverSession }

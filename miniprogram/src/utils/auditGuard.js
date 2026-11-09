@@ -1,4 +1,10 @@
 import { useUserStore } from '../store/user.js'
+import { onShow, onHide, onUnload } from '@dcloudio/uni-app'
+
+function currentPage() {
+  const pages = getCurrentPages()
+  return pages[pages.length - 1]
+}
 
 // 简洁模式（auditMode）下被关掉的那几个页面，各自在 onLoad 里调一次这个守卫。
 //
@@ -10,19 +16,25 @@ import { useUserStore } from '../store/user.js'
 //
 // 必须先 await ensureSystemConfig()：store 里 auditMode 的初值是「按开着处理」，
 // 不等配置回来就判会把简洁模式关着时的正常用户也弹出去。
-export async function blockedByAuditMode() {
+export async function blockedByAuditMode(lifecycle = { active: true, timer: null }) {
+  const owner = currentPage()
+  const version = lifecycle.version
   const userStore = useUserStore()
   await userStore.ensureSystemConfig()
+  if (!lifecycle.active || lifecycle.version !== version || currentPage() !== owner) return true
   if (!userStore.auditMode) return false
 
   uni.showToast({
-    title: '该功能当前未开放',
+    title: userStore.systemConfigStatus === 'loaded' ? '该功能当前未开放' : '功能配置加载失败，请点击重试',
     icon: 'none',
     duration: 2000,
   })
   // 留一点时间让 toast 被看见再退。tabBar 页面不能 navigateBack，
   // 直开进来时页面栈只有自己一层，只能 switchTab 回首页。
-  setTimeout(() => {
+  if (userStore.systemConfigStatus !== 'loaded') return true
+  clearTimeout(lifecycle.timer)
+  lifecycle.timer = setTimeout(() => {
+    if (!lifecycle.active || lifecycle.version !== version || currentPage() !== owner) return
     if (getCurrentPages().length > 1) {
       uni.navigateBack()
     } else {
@@ -30,4 +42,14 @@ export async function blockedByAuditMode() {
     }
   }, 1500)
   return true
+}
+
+// 在页面 setup 注册生命周期，不能在 await 后注册 uni-app 钩子。
+export function useAuditGuard() {
+  const lifecycle = { active: true, timer: null, version: 0 }
+  const cancel = () => { lifecycle.active = false; lifecycle.version++; clearTimeout(lifecycle.timer); lifecycle.timer = null }
+  onShow(() => { lifecycle.active = true })
+  onHide(cancel)
+  onUnload(cancel)
+  return () => blockedByAuditMode(lifecycle)
 }

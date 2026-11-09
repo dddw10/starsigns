@@ -19,29 +19,19 @@ const pushStore = usePushStore()
 const themeClass = computed(() => themeStore.getThemeClass())
 
 // 小程序启动时执行
-onLaunch(async () => {
+onLaunch(() => {
   console.log('App Launch')
 
-  // 初始化用户状态
+  // 本地展示状态先于所有网络初始化。
+  themeStore.initTheme()
+  pushStore.initFromStorage()
   userStore.initFromStorage()
-
-  // #ifdef MP-WEIXIN
-  // 一律重新换令牌，不看本地有没有旧令牌。
-  // 小程序换令牌只需要 uni.login()，不需要用户操作；而本地令牌在 initFromStorage
-  // 里已经被丢掉了，如果再用「本地有令牌」当条件，一次失败就永久登不回来
-  await userStore.restoreWechatSession()
-  // #endif
 
   // 拉取最新系统配置 (审核开关)。
   // 走 ensureSystemConfig 而不是 fetchSystemConfig：被隐藏页面的守卫要等这一次请求
   // 回来才能判断放不放行，共用同一个在途 promise，避免各自重复发请求或不等就判。
   userStore.ensureSystemConfig()
-
-  // 初始化推送状态
-  pushStore.initFromStorage()
-
-  // 初始化主题
-  themeStore.initTheme()
+  userStore.restoreSession()
 })
 
 // 小程序显示时执行
@@ -49,8 +39,11 @@ onShow(() => {
   console.log('App Show')
 
   // 检查登录状态
-  if (userStore.token) {
+  userStore.ensureSystemConfig()
+  if (userStore.isLoggedIn) {
     userStore.checkLoginStatus()
+  } else {
+    userStore.restoreSession()
   }
 })
 

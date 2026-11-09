@@ -1,5 +1,5 @@
 <template>
-  <view class="page-container" :class="themeClass">
+  <view class="page-container" :class="themeClass" v-if="userStore.systemConfigLoaded && !userStore.auditMode">
     <view class="mystic-orb orb-1"></view>
     <view class="mystic-orb orb-2"></view>
 
@@ -229,15 +229,17 @@
       <text>本结果基于数理配对与姓名五格法则剖析，仅供娱乐参考</text>
     </view>
   </view>
+  <view v-else class="page-container" @click="blockedByAuditMode">{{ userStore.systemConfigLoaded ? '该功能当前未开放' : '功能配置未就绪，点击重试' }}</view>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { nameAnalysisApi, nameMatchApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
-import { blockedByAuditMode } from '@/utils/auditGuard'
+import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
+const checkAuditMode = useAuditGuard()
 const activeTab = ref('single')
 
 // 单人测算状态
@@ -270,9 +272,9 @@ const share = () => {
   })
 }
 
-onMounted(async () => {
+const blockedByAuditMode = async () => {
   // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
-  if (await blockedByAuditMode()) return
+  if (await checkAuditMode()) return
   // 读取上次单人测算输入
   const lastInput = uni.getStorageSync('last_name_input')
   if (lastInput) {
@@ -301,7 +303,8 @@ onMounted(async () => {
   if (commonMatch) {
     commonNameMatchList.value = commonMatch
   }
-})
+}
+onMounted(blockedByAuditMode)
 
 const fillForm = (item) => {
   name.value = item.name

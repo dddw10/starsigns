@@ -1,5 +1,5 @@
 <template>
-  <view class="page-container" :class="themeClass">
+  <view class="page-container" :class="themeClass" v-if="userStore.systemConfigLoaded && !userStore.auditMode">
     <view class="header">
       <text class="title">AI颜值测试</text>
       <text class="subtitle">AI智能识别，趣味分析</text>
@@ -74,13 +74,14 @@
     <!-- 微信隐私指引授权弹窗 -->
     <PrivacyPopup />
   </view>
+  <view v-else class="page-container" @click="blockedByAuditMode">{{ userStore.systemConfigLoaded ? '该功能当前未开放' : '功能配置未就绪，点击重试' }}</view>
 </template>
 
 <script setup>
 import { getCurrentInstance, ref, nextTick, onMounted } from 'vue'
 import { facePalmAnalysisApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
-import { blockedByAuditMode } from '@/utils/auditGuard'
+import { useAuditGuard } from '@/utils/auditGuard'
 import PrivacyPopup from '@/components/PrivacyPopup.vue'
 
 const imageSrc = ref('')
@@ -91,11 +92,13 @@ const instance = getCurrentInstance()
 const CANVAS_ID = 'detectCanvas'
 const DETECT_SIZE = 160
 const userStore = useUserStore()
+const checkAuditMode = useAuditGuard()
 
 // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
-onMounted(async () => {
-  await blockedByAuditMode()
-})
+const blockedByAuditMode = async () => {
+  await checkAuditMode()
+}
+onMounted(blockedByAuditMode)
 
 // AI 扫描动效相关变量
 const scanTimer = ref(null)

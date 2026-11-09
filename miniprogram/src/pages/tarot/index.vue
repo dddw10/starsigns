@@ -1,5 +1,5 @@
 <template>
-  <view class="page-container" :class="themeClass">
+  <view class="page-container" :class="themeClass" v-if="userStore.systemConfigLoaded && !userStore.auditMode">
     <!-- 装饰性神秘背景球 -->
     <view class="mystic-orb orb-1"></view>
     <view class="mystic-orb orb-2"></view>
@@ -140,15 +140,17 @@
       <text>灵感卡牌仅供娱乐参考，不构成任何决策建议</text>
     </view>
   </view>
+  <view v-else class="page-container" @click="blockedByAuditMode">{{ userStore.systemConfigLoaded ? '该功能当前未开放' : '功能配置未就绪，点击重试' }}</view>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { doTarotDrawApi } from '@/api/fortune'
 import { useUserStore } from '@/store/user'
-import { blockedByAuditMode } from '@/utils/auditGuard'
+import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
+const checkAuditMode = useAuditGuard()
 const selectedSpread = ref(null)
 const selectedCards = ref([])
 const flippedCards = ref([])
@@ -199,11 +201,12 @@ const destroyAudio = () => {
   } catch (e) {}
 }
 
-onMounted(async () => {
+const blockedByAuditMode = async () => {
   // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
-  if (await blockedByAuditMode()) return
+  if (await checkAuditMode()) return
   initAudio()
-})
+}
+onMounted(blockedByAuditMode)
 
 onUnmounted(() => {
   destroyAudio()

@@ -1,5 +1,7 @@
 <template>
-  <view class="chat-container" :class="themeClass">
+  <view class="chat-container" :class="themeClass" v-if="userStore.systemConfigLoaded && !userStore.auditMode">
+    <view v-if="userStore.sessionStatus === 'restoring'">正在恢复登录…</view>
+    <view v-if="userStore.sessionStatus === 'failed'" @click="userStore.restoreSession({ retry: true })">{{ userStore.sessionError }} · 点击重试</view>
     <!-- 头部：切换会谈模式 -->
     <view class="chat-header">
       <view class="nav-back" @click="goBack">⬅</view>
@@ -139,16 +141,18 @@
       </view>
     </view>
   </view>
+  <view v-else class="page-container" @click="blockedByAuditMode">{{ userStore.systemConfigLoaded ? '该功能当前未开放' : '功能配置未就绪，点击重试' }}</view>
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, onMounted, computed } from 'vue'
+import { ref, reactive, nextTick, onMounted, computed, watch } from 'vue'
 import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
-import { BASE_URL, recoverSession } from '@/api/request'
-import { blockedByAuditMode } from '@/utils/auditGuard'
+import { BASE_URL, recoverSession, waitForSession } from '@/api/request'
+import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
+const checkAuditMode = useAuditGuard()
 const themeStore = useThemeStore()
 
 // 计算全局主题类名
@@ -169,6 +173,13 @@ const birthInfo = reactive({
 })
 
 const hourRange = Array.from({ length: 24 }, (_, i) => `${i}`)
+watch(() => userStore.userInfo?.birthInfo, info => {
+  if (!info?.solarDate) return
+  birthInfo.solarDate = info.solarDate
+  const hours = { 子时: '0', 丑时: '2', 寅时: '4', 卯时: '6', 辰时: '8', 巳时: '10', 午时: '12', 未时: '14', 申时: '16', 酉时: '18', 戌时: '20', 亥时: '22' }
+  birthInfo.birthTime = hours[info.birthTime] || (/^\d+$/.test(info.birthTime) ? info.birthTime : '12')
+  gender.value = info.gender || 'male'
+}, { immediate: true })
 
 // 健壮的 UTF-8 字节流解码器，处理切片截断与多字节字符（如中文、Emoji）
 class Utf8Decoder {
@@ -238,11 +249,12 @@ const initWelcome = () => {
   ]
 }
 
-onMounted(async () => {
+const blockedByAuditMode = async () => {
   // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
-  if (await blockedByAuditMode()) return
+  if (await checkAuditMode()) return
   initWelcome()
-})
+}
+onMounted(blockedByAuditMode)
 
 const switchMode = (mode) => {
   if (chatMode.value === mode) return
@@ -314,17 +326,19 @@ const sendMessage = async () => {
     let loginToast = null
     uni.showLoading({ title: '大天机推演中，正在准备登录...' })
     try {
-      const loginRes = await userStore.login()
+      const loginRes = await userStore.restoreSession({ retry: true })
       if (!loginRes.success) {
         throw new Error(loginRes.message || '登录失败')
       }
     } catch (e) {
-      loginToast = { title: '快捷登录失败，将以游客身份提问', icon: 'none' }
+      loginToast = { title: e.message || '登录恢复失败，请重试', icon: 'none' }
     } finally {
       uni.hideLoading()
     }
-    if (loginToast) uni.showToast(loginToast)
+    if (loginToast) { uni.showToast(loginToast); return }
   }
+  try { await waitForSession() }
+  catch (error) { uni.showToast({ title: error.message, icon: 'none' }); return }
 
   const userQuery = inputMsg.value.trim()
   inputMsg.value = ''

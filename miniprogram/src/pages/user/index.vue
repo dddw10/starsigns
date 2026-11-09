@@ -1,6 +1,9 @@
 <template>
   <page-meta :page-style="'overflow:' + (isDrawerOrPopupOpen ? 'hidden' : 'visible')"></page-meta>
   <view class="page-container" :class="themeClass">
+    <view v-if="userStore.sessionStatus === 'restoring'">正在恢复登录…</view>
+    <view v-if="userStore.sessionStatus === 'failed'" @click="retrySession">{{ userStore.sessionError }} · 点击重试</view>
+    <view v-if="personalLoadError" @click="refreshPersonalData">{{ personalLoadError }} · 点击重试</view>
     <view class="mystic-orb orb-1"></view>
     <view class="mystic-orb orb-2"></view>
 
@@ -469,7 +472,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import { useThemeStore } from '@/store/theme'
 import { useUserStore } from '@/store/user'
 import { getFortuneRecordsApi } from '@/api/fortune'
@@ -490,6 +493,8 @@ import {
 
 const themeStore = useThemeStore()
 const userStore = useUserStore()
+let pageVisible = true
+const personalLoadError = ref('')
 
 const isLoggedIn = computed(() => userStore.isLoggedIn)
 const userInfo = computed(() => userStore.userInfo || {})
@@ -668,16 +673,19 @@ function getBeastWords(pet) {
 
 // 加载神兽状态
 const loadPetStatus = async () => {
+  const version = userStore.sessionVersion
   if (!isLoggedIn.value) {
     petData.value = null
     return
   }
   try {
     const res = await getPetStatusApi()
+    if (version !== userStore.sessionVersion) return
     if (res.code === 0) {
       petData.value = res.data
     }
   } catch (e) {
+    if (version === userStore.sessionVersion) personalLoadError.value = e.message || '神兽资料加载失败'
     console.error('获取神兽状态失败:', e)
   }
 }
@@ -782,26 +790,43 @@ const onOpenGiftBox = async () => {
 }
 
 const loadStats = async () => {
+  const version = userStore.sessionVersion
   if (!isLoggedIn.value) {
     historyCount.value = 0
     return
   }
   try {
     const res = await getFortuneRecordsApi({ page: 1, pageSize: 1 })
+    if (version !== userStore.sessionVersion) return
     if (res.code === 0 && res.data) {
       historyCount.value = res.data.total || 0
     }
   } catch (e) {
+    if (version === userStore.sessionVersion) personalLoadError.value = e.message || '个人记录加载失败'
     console.error('加载历史记录失败:', e)
   }
 }
 
+const refreshPersonalData = async () => {
+  if (!userStore.isLoggedIn) return
+  const version = userStore.sessionVersion
+  personalLoadError.value = ''
+  const profile = userStore.fetchUserInfo()
+  await Promise.all([profile, loadStats(), loadPetStatus()])
+  if (version === userStore.sessionVersion && !await profile) personalLoadError.value = '个人资料加载失败，请重试'
+}
+const retrySession = async () => {
+  if ((await userStore.restoreSession({ retry: true })).success) refreshPersonalData()
+}
+watch(() => [userStore.sessionStatus, userStore.sessionVersion], () => {
+  if (!userStore.isLoggedIn) { petData.value = null; historyCount.value = 0; personalLoadError.value = ''; return }
+  if (pageVisible) refreshPersonalData()
+})
+onHide(() => { pageVisible = false })
+onUnload(() => { pageVisible = false })
 onShow(() => {
-  if (userStore.isLoggedIn) {
-    userStore.fetchUserInfo()
-    loadStats()
-    loadPetStatus()
-  }
+  pageVisible = true
+  refreshPersonalData()
   // 确保切回该页面时原生 TabBar 显示，防止状态异常
   uni.showTabBar()
   showFeedDrawer.value = false
