@@ -4,7 +4,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { trustedProxies } = require('../src/config/proxy');
 
-const placeholder = value => !String(value ?? '').trim() || /(?:your[_-]|replace[_-]|change[_-]?me|placeholder|example|<[^>]+>)/i.test(String(value));
+const placeholder = value => !String(value ?? '').trim() || /(?:your[_-]|replace[_-]|change[_-]?me|placeholder|example|<[^>]+>|^secret$)/i.test(String(value).trim());
 
 function validateConfig(config) {
   const errors = new Set();

@@ -51,6 +51,13 @@ function validConfig() {
   } };
 }
 
+test('preflight rejects the same secret placeholder rejected by application startup', () => {
+  const config = validConfig();
+  config.services.app.environment.JWT_SECRET = ' secret ';
+  const { validateConfig } = require('../scripts/deploy-preflight');
+  expect(validateConfig(config)).toContain('JWT_SECRET');
+});
+
 test('valid shell dry-run validates selected files without publishing or moving application files', () => {
   const dir = fixture(validConfig());
   const result = runShell(dir);
