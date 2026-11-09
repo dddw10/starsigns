@@ -239,7 +239,7 @@ import { useUserStore } from '@/store/user'
 import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
-const checkAuditMode = useAuditGuard()
+const checkAuditMode = useAuditGuard(() => blockedByAuditMode())
 const activeTab = ref('single')
 
 // 单人测算状态

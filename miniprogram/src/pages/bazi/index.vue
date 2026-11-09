@@ -296,7 +296,7 @@ import { GAN_WUXING } from './utils/bazi-calc'
 import { calcBaziChart, formatBaziChart } from './utils/bazi-chart'
 
 const userStore = useUserStore()
-const checkAuditMode = useAuditGuard()
+const checkAuditMode = useAuditGuard(() => blockedByAuditMode())
 const activeTab = ref('single')
 
 // 单人测算状态

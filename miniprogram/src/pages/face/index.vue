@@ -92,7 +92,7 @@ const instance = getCurrentInstance()
 const CANVAS_ID = 'detectCanvas'
 const DETECT_SIZE = 160
 const userStore = useUserStore()
-const checkAuditMode = useAuditGuard()
+const checkAuditMode = useAuditGuard(() => blockedByAuditMode())
 
 // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
 const blockedByAuditMode = async () => {

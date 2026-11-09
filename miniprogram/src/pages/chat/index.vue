@@ -152,7 +152,7 @@ import { BASE_URL, recoverSession, waitForSession } from '@/api/request'
 import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
-const checkAuditMode = useAuditGuard()
+const checkAuditMode = useAuditGuard(() => blockedByAuditMode())
 const themeStore = useThemeStore()
 
 // 计算全局主题类名
@@ -166,19 +166,24 @@ const loadingText = ref('大师正在推演天机...')
 const scrollTop = ref(0)
 const isBirthCardCollapsed = ref(false)
 
-const gender = ref('male')
+const gender = ref('')
 const birthInfo = reactive({
-  solarDate: '1998-06-18',
-  birthTime: '12'
+  solarDate: '',
+  birthTime: ''
 })
 
 const hourRange = Array.from({ length: 24 }, (_, i) => `${i}`)
-watch(() => userStore.userInfo?.birthInfo, info => {
-  if (!info?.solarDate) return
-  birthInfo.solarDate = info.solarDate
+const editedBirthFields = new Set()
+let birthSessionVersion = userStore.sessionVersion
+watch(() => [userStore.sessionVersion, userStore.userInfo?.birthInfo, userStore.userInfo?.gender], ([version, info, profileGender]) => {
+  if (version !== birthSessionVersion) {
+    birthSessionVersion = version
+    editedBirthFields.clear()
+  }
+  if (!editedBirthFields.has('solarDate')) birthInfo.solarDate = info?.solarDate || ''
   const hours = { 子时: '0', 丑时: '2', 寅时: '4', 卯时: '6', 辰时: '8', 巳时: '10', 午时: '12', 未时: '14', 申时: '16', 酉时: '18', 戌时: '20', 亥时: '22' }
-  birthInfo.birthTime = hours[info.birthTime] || (/^\d+$/.test(info.birthTime) ? info.birthTime : '12')
-  gender.value = info.gender || 'male'
+  if (!editedBirthFields.has('birthTime')) birthInfo.birthTime = hours[info?.birthTime] || (/^\d+$/.test(info?.birthTime) ? String(info.birthTime) : '')
+  if (!editedBirthFields.has('gender')) gender.value = profileGender === 2 ? 'female' : profileGender === 1 ? 'male' : ''
 }, { immediate: true })
 
 // 健壮的 UTF-8 字节流解码器，处理切片截断与多字节字符（如中文、Emoji）
@@ -278,14 +283,17 @@ const toggleBirthCard = () => {
 }
 
 const onDateChange = (e) => {
+  editedBirthFields.add('solarDate')
   birthInfo.solarDate = e.detail.value
 }
 
 const onHourChange = (e) => {
+  editedBirthFields.add('birthTime')
   birthInfo.birthTime = hourRange[e.detail.value]
 }
 
 const setGender = (val) => {
+  editedBirthFields.add('gender')
   gender.value = val
 }
 

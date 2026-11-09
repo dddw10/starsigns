@@ -150,7 +150,7 @@ import { useUserStore } from '@/store/user'
 import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
-const checkAuditMode = useAuditGuard()
+const checkAuditMode = useAuditGuard(() => blockedByAuditMode())
 const selectedSpread = ref(null)
 const selectedCards = ref([])
 const flippedCards = ref([])

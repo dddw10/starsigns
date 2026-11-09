@@ -225,3 +225,51 @@ test('new login after timeout does not accept a late previous exchange', async (
   r.respond(r.requests[0], session('old')); await r.flush()
   assert.equal(r.store.userInfo._id, 'fresh')
 })
+
+test('manual login joins pending H5 cached-token restoration without changing identity', async () => {
+  for (const status of [200, 401]) {
+    const r = await runtime({ platform: 'H5', stored: { user_token: 'account-token', auth_mode: 'account' } })
+    r.store.initFromStorage()
+    const restore = r.store.restoreSession(); await r.flush()
+    const manual = r.store.login(); await r.flush()
+    assert.equal(r.requests.length, 1, 'one profile verification must own both callers')
+    r.respond(r.requests[0], status === 200 ? { code: 0, data: { _id: 'account' } } : { code: 401 }, status)
+    assert.equal((await restore).success, status === 200)
+    assert.equal((await manual).success, status === 200)
+    assert.equal(r.store.token, status === 200 ? 'account-token' : '')
+    assert.equal(r.requests.some(item => item.url.endsWith('/login')), false)
+  }
+})
+
+test('foreground recovery joins account login already in flight', async () => {
+  const r = await runtime({ platform: 'H5' })
+  const login = r.store.loginAccount('new', 'password'); await r.flush()
+  const foreground = r.store.restoreSession(); await r.flush()
+  assert.equal(r.store.sessionStatus, 'restoring')
+  r.respond(r.requests[0], session('new'))
+  assert.equal((await login).success, true)
+  assert.equal((await foreground).success, true)
+  assert.equal(r.store.token, 'new-token')
+})
+
+test('a profile snapshot from before birth backfill cannot erase the completed backfill', async () => {
+  const r = await runtime({ stored: { user_birth_backup: JSON.stringify({ solarDate: '1990-01-01', birthTime: '子时' }) } })
+  const login = r.store.login(); await r.flush(); r.respond(r.requests[0], session()); await login
+  assert.equal(r.store.isLoggedIn, true, 'birth backfill must not delay authentication')
+  const profile = r.store.fetchUserInfo(); await r.flush()
+  r.respond(r.requests.find(item => item.url.endsWith('/birth-info')), { code: 0, data: { solarDate: '1990-01-01', birthTime: '子时' } })
+  await r.flush()
+  r.respond(r.requests.find(item => item.url.endsWith('/profile')), { code: 0, data: { _id: 'old', nickname: 'old' } })
+  assert.equal(await profile, true)
+  assert.equal(r.store.userInfo.birthInfo?.solarDate, '1990-01-01')
+  assert.equal(JSON.parse(r.storage.get('user_info')).birthInfo?.birthTime, '子时')
+})
+
+test('finishing a profile read does not suppress a later fresh profile read', async () => {
+  const r = await runtime()
+  const login = r.store.login(); await r.flush(); r.respond(r.requests[0], session()); await login
+  const first = r.store.fetchUserInfo(), second = r.store.fetchUserInfo(); await r.flush()
+  r.respond(r.requests[1], { code: 0, data: { _id: 'old', nickname: 'before' } }); await first
+  r.respond(r.requests[2], { code: 0, data: { _id: 'old', nickname: 'after' } }); await second
+  assert.equal(r.store.userInfo.nickname, 'after')
+})

@@ -45,11 +45,27 @@ export async function blockedByAuditMode(lifecycle = { active: true, timer: null
 }
 
 // 在页面 setup 注册生命周期，不能在 await 后注册 uni-app 钩子。
-export function useAuditGuard() {
+export function useAuditGuard(resumeInitialization) {
   const lifecycle = { active: true, timer: null, version: 0 }
-  const cancel = () => { lifecycle.active = false; lifecycle.version++; clearTimeout(lifecycle.timer); lifecycle.timer = null }
-  onShow(() => { lifecycle.active = true })
+  let initialized = false
+  let wasHidden = false
+  const cancel = () => { wasHidden = true; lifecycle.active = false; lifecycle.version++; clearTimeout(lifecycle.timer); lifecycle.timer = null }
+  onShow(async () => {
+    lifecycle.active = true
+    if (!wasHidden || initialized || !resumeInitialization) return
+    const version = lifecycle.version
+    const userStore = useUserStore()
+    await userStore.ensureSystemConfig()
+    if (!lifecycle.active || lifecycle.version !== version) return
+    // 只补开放页面的初始化，不重新安排已取消的审核退页。
+    if (userStore.systemConfigLoaded && !userStore.auditMode) await resumeInitialization()
+  })
   onHide(cancel)
   onUnload(cancel)
-  return () => blockedByAuditMode(lifecycle)
+  return async () => {
+    if (initialized) return true
+    if (await blockedByAuditMode(lifecycle) || initialized) return true
+    initialized = true
+    return false
+  }
 }

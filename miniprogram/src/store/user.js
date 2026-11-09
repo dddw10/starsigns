@@ -16,6 +16,8 @@ export const useUserStore = defineStore('user', () => {
   let systemConfigPromise = null
   let loginPromise = null
   let restorePromise = null
+  let accountPromise = null
+  let profileMutationVersion = 0
   let loginAttempt = 0
   let retryAfter = 0
   let explicitlyLoggedOut = false
@@ -30,6 +32,9 @@ export const useUserStore = defineStore('user', () => {
       const cached = uni.getStorageSync('user_info')
       userInfo.value = !explicitlyLoggedOut && cached ? (typeof cached === 'string' ? JSON.parse(cached) : cached) : null
       sessionStatus.value = explicitlyLoggedOut ? 'logged_out' : 'restoring'
+      // #ifdef H5
+      if (!token.value && !userInfo.value && !uni.getStorageSync('auth_mode')) sessionStatus.value = 'logged_out'
+      // #endif
       return Boolean(token.value)
     } catch (error) {
       token.value = ''
@@ -49,6 +54,7 @@ export const useUserStore = defineStore('user', () => {
     explicitlyLoggedOut = false
     token.value = session.token
     userInfo.value = session.userInfo
+    profileMutationVersion++
     sessionError.value = ''
     sessionStatus.value = 'authenticated'
     retryAfter = 0
@@ -72,6 +78,16 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function login() {
+    if (restorePromise) return restorePromise
+    if (accountPromise) return accountPromise
+    // H5 保护操作应恢复原账号，不能以模拟登录替换尚未验证的身份。
+    // #ifdef H5
+    if (token.value || uni.getStorageSync('auth_mode') === 'account') return restoreSession({ retry: true })
+    // #endif
+    return exchangeLogin()
+  }
+
+  function exchangeLogin() {
     if (loginPromise) return loginPromise
     explicitlyLoggedOut = false
     uni.removeStorageSync('user_logged_out')
@@ -111,8 +127,17 @@ export const useUserStore = defineStore('user', () => {
 
   function restoreSession({ force = false, retry = false } = {}) {
     if (restorePromise) return restorePromise
+    if (accountPromise) return accountPromise
+    if (loginPromise) return loginPromise
     if (explicitlyLoggedOut) return Promise.resolve({ success: false, message: '请先登录' })
     if (isLoggedIn.value && !force) return Promise.resolve({ success: true })
+    // #ifdef H5
+    if (!token.value && !userInfo.value && !uni.getStorageSync('auth_mode')) {
+      sessionStatus.value = 'logged_out'
+      sessionError.value = ''
+      return Promise.resolve({ success: false, message: '请先登录' })
+    }
+    // #endif
     if (!retry && Date.now() < retryAfter) return Promise.resolve({ success: false, message: sessionError.value })
     const version = sessionVersion.value
     const cachedToken = token.value
@@ -144,7 +169,7 @@ export const useUserStore = defineStore('user', () => {
         // #endif
         let result = { success: false }
         for (let attempt = 0; attempt < 2 && version === sessionVersion.value; attempt++) {
-          result = await login()
+          result = await exchangeLogin()
           if (result.success) return result
         }
         return result
@@ -163,9 +188,11 @@ export const useUserStore = defineStore('user', () => {
     loginAttempt++
     loginPromise = null
     restorePromise = null
+    accountPromise = null
     retryAfter = 0
     token.value = ''
     userInfo.value = null
+    profileMutationVersion++
     uni.removeStorageSync('user_token')
     uni.removeStorageSync('user_info')
     uni.removeStorageSync('auth_mode')
@@ -192,7 +219,9 @@ export const useUserStore = defineStore('user', () => {
         const res = await withTimeout(api({ username, password }))
         return { success: saveSession(res.data, 'account', version) }
       } catch (error) { failSession(error.message, version); return { success: false, message: error.message } }
+      finally { if (accountPromise === pending) accountPromise = null }
     })()
+    accountPromise = pending
     setSessionReadyPromise(pending)
     return pending
   }
@@ -209,6 +238,7 @@ export const useUserStore = defineStore('user', () => {
       if (version !== sessionVersion.value || !isLoggedIn.value) return
       if (res.code === 0 && res.data) {
         userInfo.value = { ...userInfo.value, birthInfo: res.data }
+        profileMutationVersion++
         uni.setStorageSync('user_info', JSON.stringify(userInfo.value))
       }
     } catch (error) { console.warn('回填生辰失败:', error.message) }
@@ -227,6 +257,7 @@ export const useUserStore = defineStore('user', () => {
       const res = await updateUserInfoApi(data)
       if (version !== sessionVersion.value || !isLoggedIn.value) return { success: false, message: '账号已切换' }
       userInfo.value = { ...userInfo.value, ...data }
+      profileMutationVersion++
       uni.setStorageSync('user_info', JSON.stringify(userInfo.value))
       return { success: res.code === 0 }
     } catch (error) { return { success: false, message: error.message || '更新失败' } }
@@ -234,9 +265,12 @@ export const useUserStore = defineStore('user', () => {
 
   async function fetchUserInfo() {
     const version = sessionVersion.value
+    const revision = profileMutationVersion
     try {
       const res = await getUserInfoApi()
       if (version !== sessionVersion.value || !isLoggedIn.value) return false
+      // 回填或资料修改已经落地时，忽略修改前发起的读取快照。
+      if (revision !== profileMutationVersion) return true
       userInfo.value = res.data
       uni.setStorageSync('user_info', JSON.stringify(res.data))
       backupBirthInfo(res.data?.birthInfo)

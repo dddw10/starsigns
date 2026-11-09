@@ -150,3 +150,76 @@ test('resolved pet data cannot repaint the page after logout before its continua
   r.store.logout(); await pending; await r.flush()
   assert.equal(page.petData.value, null)
 })
+
+test('fresh H5 visitor uses the explicit guest daily path without a recovery error', async () => {
+  const r = await runtime({ platform: 'H5' })
+  r.store.initFromStorage()
+  await r.store.restoreSession()
+  const home = await r.evaluate('./pages/index/index.vue', ['loadDailyFortune', 'dailyError'])
+  const pending = home.loadDailyFortune(); await r.flush()
+  assert.equal(r.store.sessionStatus, 'logged_out')
+  const daily = r.requests.find(item => item.url.endsWith('/daily'))
+  assert.ok(daily)
+  assert.equal(daily.header.Authorization, undefined)
+  r.respond(daily, { code: 0, data: { score: 70 } }); await pending
+  assert.equal(home.dailyError.value, '')
+})
+
+test('open config resumes initialization after hiding and never resets an initialized chat', async () => {
+  for (const completedWhileHidden of [true, false]) {
+    const r = await runtime()
+    const chat = await r.evaluate('./pages/chat/index.vue', ['messages'])
+    const pending = r.hook('pages/chat/index.vue', 'onMounted')[0](); await r.flush()
+    for (const hook of r.hook('pages/chat/index.vue', 'onHide')) hook()
+    if (completedWhileHidden) {
+      r.respond(r.requests[0], { code: 0, data: { auditMode: false } }); await pending
+    }
+    for (const hook of r.hook('pages/chat/index.vue', 'onShow')) hook()
+    if (!completedWhileHidden) {
+      r.respond(r.requests[0], { code: 0, data: { auditMode: false } }); await pending
+    }
+    await r.flush()
+    assert.equal(chat.messages.value.length, 1, 'welcome must initialize when this page becomes usable')
+    chat.messages.value.push({ role: 'user', content: '保留这条对话' })
+    for (const hook of r.hook('pages/chat/index.vue', 'onHide')) hook()
+    for (const hook of r.hook('pages/chat/index.vue', 'onShow')) hook()
+    await r.flush()
+    assert.equal(chat.messages.value.at(-1).content, '保留这条对话')
+  }
+})
+
+test('chat restores gender from the account profile', async () => {
+  const r = await runtime()
+  const chat = await r.evaluate('./pages/chat/index.vue', ['gender'])
+  const login = r.store.login(); await r.flush()
+  r.respond(r.requests[0], { code: 0, data: { token: 'female-token', userInfo: { _id: 'female', gender: 2, birthInfo: { solarDate: '1990-01-01', birthTime: '子时' } } } })
+  await login; await r.flush()
+  assert.equal(chat.gender.value, 'female')
+})
+
+test('same-account profile refresh preserves manually edited chat birth fields', async () => {
+  const r = await runtime()
+  const chat = await r.evaluate('./pages/chat/index.vue', ['birthInfo', 'gender', 'onDateChange', 'onHourChange', 'setGender'])
+  const login = r.store.login(); await r.flush(); r.respond(r.requests[0], loginResponse); await login; await r.flush()
+  chat.onDateChange({ detail: { value: '2000-02-02' } })
+  chat.onHourChange({ detail: { value: 7 } })
+  chat.setGender('female')
+  const refresh = r.store.fetchUserInfo(); await r.flush()
+  r.respond(r.requests[1], { code: 0, data: { ...loginResponse.data.userInfo, birthInfo: { ...loginResponse.data.userInfo.birthInfo }, gender: 1 } }); await refresh; await r.flush()
+  assert.equal(chat.birthInfo.solarDate, '2000-02-02')
+  assert.equal(chat.birthInfo.birthTime, '7')
+  assert.equal(chat.gender.value, 'female')
+})
+
+test('switching to an account without birth data clears all previous chat birth fields', async () => {
+  const r = await runtime({ platform: 'H5' })
+  const chat = await r.evaluate('./pages/chat/index.vue', ['birthInfo', 'gender', 'onDateChange', 'setGender'])
+  const old = r.store.loginAccount('old', 'password'); await r.flush()
+  r.respond(r.requests[0], loginResponse); await old; await r.flush()
+  chat.onDateChange({ detail: { value: '2000-02-02' } }); chat.setGender('female')
+  const next = r.store.loginAccount('new', 'password'); await r.flush()
+  r.respond(r.requests[1], { code: 0, data: { token: 'new-token', userInfo: { _id: 'new', gender: 0 } } }); await next; await r.flush()
+  assert.equal(chat.birthInfo.solarDate, '')
+  assert.equal(chat.birthInfo.birthTime, '')
+  assert.equal(chat.gender.value, '')
+})
