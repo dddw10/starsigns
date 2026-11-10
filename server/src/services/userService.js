@@ -7,6 +7,8 @@ const { generateToken } = require('../middleware/auth');
 const { isAdminUser, normalizePhone } = require('../config/admin');
 const { getRedis } = require('../config/redis');
 const { getEightChar, resolveSolarDate } = require('../algorithms/bazi');
+const { Solar } = require('lunar-javascript');
+const { validateBirthDate, validateProfileBirthTime } = require('../utils/aiInput');
 const { getBeijingDateString } = require('../utils/date');
 
 const GAN_WUXING = {
@@ -111,23 +113,22 @@ class UserService {
   }
 
   async updateBirthInfo(userId, data) {
+    validateBirthDate(data.solarDate, data.calendar);
+    validateProfileBirthTime(data.birthTime);
     // 历法选农历时，先把用户填的农历日期折算成公历。
     // birthInfo.solarDate 存的必须是真公历，否则每日运势会按农历日期重算出错的八字
     const solarDate = resolveSolarDate(data.solarDate, data.calendar);
+    const lunar = Solar.fromYmd(...solarDate.split('-').map(Number)).getLunar();
 
     const birthInfo = {
       solarDate,
-      lunarDate: data.lunarDate || '',
+      lunarDate: `${lunar.getYear()}-${lunar.getMonth()}-${lunar.getDay()}`,
       birthTime: data.birthTime,
     };
 
-    if (solarDate) {
+    if (data.birthTime !== '未知') {
       // 时辰要一起传进去，否则时柱恒等于子时那一柱
       const eightChar = getEightChar(solarDate, data.birthTime);
-      const lunar = eightChar.getLunar();
-
-      birthInfo.lunarDate = `${lunar.getYear()}-${lunar.getMonth()}-${lunar.getDay()}`;
-
       birthInfo.yearGanZhi = eightChar.getYear();
       birthInfo.monthGanZhi = eightChar.getMonth();
       birthInfo.dayGanZhi = eightChar.getDay();

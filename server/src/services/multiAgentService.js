@@ -89,6 +89,7 @@ class MultiAgentService {
    * 排盘失败（时辰认不出、农历日期不存在等）不阻断会谈，退化成「未提供生辰八字」。
    */
   async buildBaziString(birthInfo, gender) {
+    if (birthInfo?.birthTime === '未知') return `生日: ${birthInfo.solarDate || '未提供'}，时辰未知，未生成完整排盘；不要推测时辰或四柱`;
     if (!birthInfo || !birthInfo.solarDate || birthInfo.birthTime == null || birthInfo.birthTime === '') {
       return '未提供生辰八字';
     }

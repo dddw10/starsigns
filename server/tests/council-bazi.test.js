@@ -44,10 +44,10 @@ describe('buildBaziString', () => {
   test('时辰不合法时退回占位串，并把原因写进日志', async () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const s = await service.buildBaziString({ solarDate: '1984-02-02', birthTime: '未知' }, 'male');
+      const s = await service.buildBaziString({ solarDate: '1984-02-02', birthTime: '无效时辰' }, 'male');
       expect(s).toBe('未提供生辰八字');
       expect(spy).toHaveBeenCalled();
-      expect(spy.mock.calls[0].join(' ')).toContain('未知');
+      expect(spy.mock.calls[0].join(' ')).toContain('无效时辰');
     } finally {
       spy.mockRestore();
     }

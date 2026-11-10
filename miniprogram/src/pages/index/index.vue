@@ -21,10 +21,12 @@
       <ThemeSwitcher />
     </view>
 
-    <!-- 情况 A：已设置生日密码，显示个性化运势 -->
+    <view v-if="birthTimeUnknown">时辰未知，未生成完整排盘。以下为每日参考，可补充时辰后生成专属灵感。</view>
+
+    <!-- 已保存生日；仅完整四柱显示为专属灵感 -->
     <view class="fortune-card" v-if="hasBirthInfo && todayFortune" @click="openBirthDrawer">
       <view class="card-header">
-        <text class="card-title">专属灵感 ({{ todayFortune.score }}分 - {{ todayFortune.levelName }})</text>
+        <text class="card-title">{{ hasFullBirthInfo ? '专属灵感' : '每日参考' }} ({{ todayFortune.score }}分 - {{ todayFortune.levelName }})</text>
         <view class="rating">
           <text v-for="i in 5" :key="i" class="star">{{ i <= todayFortune.rating ? '★' : '☆' }}</text>
         </view>
@@ -69,9 +71,9 @@
     <view class="fortune-card empty-state" v-else @click="openBirthDrawer">
       <view class="empty-content">
         <view class="empty-icon">🔮</view>
-        <text class="empty-title">查看您的专属每日灵感</text>
-        <text class="empty-desc">只需配置您的出生日期，系统将根据您的生日密码精准解析今日宜忌、幸运色及专属避坑建议。</text>
-        <button class="setup-btn">一键生成专属灵感</button>
+        <text class="empty-title">{{ birthTimeUnknown ? '生日已保存' : '查看您的每日灵感' }}</text>
+        <text class="empty-desc">{{ birthTimeUnknown ? '每日参考暂未就绪，可稍后重试或补充时辰。' : '配置出生日期与时辰，查看今日宜忌与幸运色；时辰未知时只保存生日，提供普通每日参考。' }}</text>
+        <button class="setup-btn">{{ birthTimeUnknown ? '补充出生时辰' : '配置生辰信息' }}</button>
       </view>
     </view>
 
@@ -133,7 +135,7 @@
           </view>
         </view>
         <view class="modal-footer">
-          <button class="modal-submit-btn" @click="saveBirthInfo" :disabled="!tempBirthDate || !tempSelectedTime">保存并生成今日能量</button>
+          <button class="modal-submit-btn" @click="saveBirthInfo" :disabled="!tempBirthDate || !tempSelectedTime">{{ tempSelectedTime?.value === '未知' ? '保存生日' : '保存并生成今日能量' }}</button>
         </view>
       </view>
     </view>
@@ -595,6 +597,9 @@ const onGetPhoneNumber = async (e) => {
 const hasBirthInfo = computed(() => {
   return !!(userStore.userInfo && userStore.userInfo.birthInfo && userStore.userInfo.birthInfo.solarDate)
 })
+const birthTimeUnknown = computed(() => userStore.userInfo?.birthInfo?.birthTime === '未知')
+const hasFullBirthInfo = computed(() => !birthTimeUnknown.value && ['yearGanZhi', 'monthGanZhi', 'dayGanZhi', 'hourGanZhi']
+  .every(key => typeof userStore.userInfo?.birthInfo?.[key] === 'string' && userStore.userInfo.birthInfo[key]))
 
 // 计算是否已签到
 const hasCheckedIn = computed(() => {
@@ -759,7 +764,7 @@ const onPushRowTap = () => {
 const openBirthDrawer = () => {
   const info = userStore.userInfo?.birthInfo || {}
   tempBirthDate.value = info.solarDate || ''
-  // 认不出就留空让用户自己选，别默认成 timeSlots[0]（子时）——那等于替用户编一个时柱
+  // 保留明确的未知选项；其他认不出的值留空，不替用户编造时辰。
   tempSelectedTime.value = timeSlots.find(t => t.value === info.birthTime) || null
   tempGender.value = userStore.userInfo?.gender === 2 ? 'female' : 'male'
   showBirthModal.value = true
@@ -780,14 +785,13 @@ const onTempTimeChange = (e) => {
 // 保存生辰信息（包含未登录状态自动登录）
 const saveBirthInfo = async () => {
   if (!tempBirthDate.value) return
-  // 时辰是四柱里的时柱，服务端只认十二时辰。以前这里会传「未知」，
-  // 被 validator 拒成 400（更早的版本则静默按子时排盘，结果是错的）
+  // 允许用户明确选择未知，但不能用未选择状态替代用户决定。
   if (!tempSelectedTime.value) {
     uni.showToast({ title: '请先选择出生时辰', icon: 'none' })
     return
   }
 
-  uni.showLoading({ title: '保存并分析中...' })
+  uni.showLoading({ title: tempSelectedTime.value.value === '未知' ? '保存生日中...' : '保存并分析中...' })
   let toast = null
   try {
     // 若未登录，先静默登录
@@ -806,7 +810,7 @@ const saveBirthInfo = async () => {
     })
 
     if (res.code === 0) {
-      toast = { title: '专属灵感生成成功', icon: 'success' }
+      toast = { title: res.data?.birthTime === '未知' ? '生日已保存，时辰未知' : '专属灵感生成成功', icon: 'success' }
       await userStore.fetchUserInfo()
       showBirthModal.value = false
       await loadDailyFortune()

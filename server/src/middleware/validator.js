@@ -1,6 +1,7 @@
 // 参数校验中间件
 const { body, param, query, validationResult } = require('express-validator');
 const { BIRTH_TIME_HOURS } = require('../algorithms/bazi');
+const { validateBirthDate, validateProfileBirthTime } = require('../utils/aiInput');
 
 // 合法时辰。排盘时未识别的时辰会静默落到子时，所以这里必须挡住
 const BIRTH_TIMES = Object.keys(BIRTH_TIME_HOURS);
@@ -54,10 +55,8 @@ const userValidation = {
 
   // 更新生辰八字
   updateBirthInfo: [
-    body('solarDate').notEmpty().withMessage('出生日期不能为空')
-      .matches(SOLAR_DATE_RE).withMessage('出生日期格式应为 YYYY-MM-DD'),
-    body('birthTime').notEmpty().withMessage('出生时辰不能为空')
-      .isIn(BIRTH_TIMES).withMessage('出生时辰值无效'),
+    body('solarDate').custom((value, { req }) => { validateBirthDate(value, req.body.calendar); return true; }),
+    body('birthTime').custom(value => { validateProfileBirthTime(value); return true; }),
     body('calendar').optional().isIn(CALENDARS).withMessage('历法值无效'),
     handleValidation,
   ],

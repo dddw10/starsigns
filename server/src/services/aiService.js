@@ -92,7 +92,7 @@ class AIService {
           },
         },
       },
-    ];
+    ].filter(tool => birthInfo?.birthTime !== '未知' || tool.function.name !== 'analyze_bazi');
 
     // Define the AI Master System Prompt
     const systemPrompt = {
@@ -105,7 +105,7 @@ class AIService {
 4. **现有用户信息**：
    - 用户的性别: ${gender === 'female' ? '女' : (gender === 'male' ? '男' : '未指定')}
    - 用户的出生信息: ${JSON.stringify(birthInfo || {})}
-   若用户已经提供了公历生日等信息，在用户询问八字/命运时，请优先使用已有的出生信息调用 \`analyze_bazi\`。`
+   ${birthInfo?.birthTime === '未知' ? '时辰未知，未生成完整排盘。不得猜测时辰或四柱；需要完整测算时请用户先补充时辰。' : '若用户已经提供了公历生日等信息，在用户询问八字/命运时，请优先使用已有的出生信息调用 analyze_bazi。'}`
     };
 
     let currentMessages = [systemPrompt, ...messages];
@@ -163,6 +163,7 @@ class AIService {
             functionArgs = JSON.parse(toolCall.function.arguments);
             validateToolArguments(functionName, functionArgs);
             if (functionName === 'analyze_bazi') {
+              if (birthInfo?.birthTime === '未知') throw new Error('出生时辰未知，请先补充时辰');
               const res = await fortuneService.baziAnalysis(userId || 'guest_user', {
                 solarDate: functionArgs.solarDate,
                 birthTime: functionArgs.birthTime,

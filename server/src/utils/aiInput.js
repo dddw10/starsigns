@@ -18,6 +18,10 @@ function validateBirthTime(value) {
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) invalid('出生时辰值无效');
 }
 
+function validateProfileBirthTime(value) {
+  if (value !== '未知' && (typeof value !== 'string' || !Object.hasOwn(BIRTH_TIME_HOURS, value))) invalid('出生时辰值无效');
+}
+
 function projectBirthInfo(value) {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -36,7 +40,7 @@ function projectBirthInfo(value) {
   }
   if (birth.solarDate) validateBirthDate(birth.solarDate, birth.calendar);
   if (Object.hasOwn(value, 'birthTime') && value.birthTime !== undefined) {
-    if (value.birthTime !== '') validateBirthTime(value.birthTime);
+    if (value.birthTime !== '' && value.birthTime !== '未知') validateBirthTime(value.birthTime);
     birth.birthTime = value.birthTime;
   }
   if (Object.hasOwn(value, 'wuxing') && value.wuxing !== undefined) {
@@ -49,6 +53,9 @@ function projectBirthInfo(value) {
       if (!Number.isInteger(wuxing[key]) || wuxing[key] < 0 || wuxing[key] > 8) invalid('五行数值无效');
       birth.wuxing[key] = wuxing[key];
     }
+  }
+  if (birth.birthTime === '未知') {
+    for (const key of ['yearGanZhi', 'monthGanZhi', 'dayGanZhi', 'hourGanZhi', 'wuxing']) delete birth[key];
   }
   return birth;
 }
@@ -83,4 +90,4 @@ function validateToolArguments(name, args) {
     if (!['male', 'female'].includes(args.gender)) invalid('性别值无效');
   } else if (!Object.hasOwn(SPREAD_TYPES, args.spreadType)) invalid('牌阵类型无效');
 }
-module.exports = { validateAIInput, validateToolArguments };
+module.exports = { validateAIInput, validateToolArguments, validateBirthDate, validateProfileBirthTime };

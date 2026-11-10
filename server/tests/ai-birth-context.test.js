@@ -116,3 +116,38 @@ test('numeric midnight reaches the council model as calculated bazi', async () =
   expect(requests[0].messages[0].content).toContain('八字:');
   expect(requests[0].messages[0].content).not.toContain('未提供生辰八字');
 });
+
+for (const mode of ['private', 'council']) for (const stream of [false, true]) for (const entry of ['controller', 'direct']) {
+  test(`${entry} ${mode} stream=${stream}: unknown birth time stays explicit without stale full chart context`, async () => {
+    const birthInfo = { ...completeBirth, birthTime: '未知', additionalContext: 'x'.repeat(100000) };
+    const body = { messages, birthInfo, gender: 'female' };
+    if (entry === 'controller') {
+      const result = await invoke(mode, stream, body);
+      expect(result.status).toBe(200);
+      expect(result.output).toContain('fixture response');
+    } else await direct(mode, stream, body);
+    expect(requests).toHaveLength(mode === 'private' ? 2 : 4);
+    expect(requests[0].messages[0].content).toContain('时辰未知');
+    expect(JSON.stringify(requests)).not.toContain('癸亥');
+    expect(JSON.stringify(requests)).not.toContain('x'.repeat(100000));
+    expect(langfuse.trace.mock.calls[0][0].metadata.birthInfo).toEqual({
+      solarDate: '1984-02-02', lunarDate: '1984-1-1', calendar: 'solar', birthTime: '未知',
+    });
+  });
+}
+
+test('unknown time cannot be filled in by a model tool call with an invented valid hour', async () => {
+  const fortune = require('../src/services/fortuneService');
+  const analyze = jest.spyOn(fortune, 'baziAnalysis').mockResolvedValue({});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  ai.getClient.mockReturnValue({ chat: { completions: { create: async request => {
+    requests.push(request);
+    return { choices: [{ message: requests.length === 1 ? { role: 'assistant', tool_calls: [{ id: 'invented',
+      function: { name: 'analyze_bazi', arguments: JSON.stringify({ solarDate: '1984-02-02', birthTime: '子时', gender: 'male' }) } }] }
+      : { role: 'assistant', content: '请补充已知时辰' } }] };
+  } } } });
+  expect(await ai.chat({ messages, birthInfo: { solarDate: '1984-02-02', birthTime: '未知' }, stream: false })).toBe('请补充已知时辰');
+  expect(analyze).not.toHaveBeenCalled();
+  expect(requests[0].tools.some(tool => tool.function.name === 'analyze_bazi')).toBe(false);
+  expect(requests).toHaveLength(3);
+});

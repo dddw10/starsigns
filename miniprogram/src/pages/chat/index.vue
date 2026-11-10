@@ -40,7 +40,7 @@
           <view class="form-item">
             <text class="label">出生时辰</text>
             <picker mode="selector" :range="hourRange" @change="onHourChange">
-              <view class="picker-val">{{ birthInfo.birthTime ? birthInfo.birthTime + '点' : '点击选择时间' }}</view>
+              <view class="picker-val">{{ birthInfo.birthTime === '未知' ? '未知 / 不清楚' : (birthInfo.birthTime ? birthInfo.birthTime + '点' : '点击选择时间') }}</view>
             </picker>
           </view>
           <view class="form-item">
@@ -184,7 +184,7 @@ watch(() => [userStore.sessionVersion, userStore.userInfo?.birthInfo, userStore.
   }
   if (!editedBirthFields.has('solarDate')) birthInfo.solarDate = info?.solarDate || ''
   const hours = { 子时: '0', 丑时: '2', 寅时: '4', 卯时: '6', 辰时: '8', 巳时: '10', 午时: '12', 未时: '14', 申时: '16', 酉时: '18', 戌时: '20', 亥时: '22' }
-  if (!editedBirthFields.has('birthTime')) birthInfo.birthTime = hours[info?.birthTime] || (/^\d+$/.test(info?.birthTime) ? String(info.birthTime) : '')
+  if (!editedBirthFields.has('birthTime')) birthInfo.birthTime = info?.birthTime === '未知' ? '未知' : (hours[info?.birthTime] || (/^\d+$/.test(info?.birthTime) ? String(info.birthTime) : ''))
   if (!editedBirthFields.has('gender')) gender.value = profileGender === 2 ? 'female' : profileGender === 1 ? 'male' : ''
 }, { immediate: true })
 
