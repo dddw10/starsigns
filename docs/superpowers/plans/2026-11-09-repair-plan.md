@@ -130,7 +130,7 @@ res.once('close', onClose);
 
 ## Task 6: 其他加固与文档差异
 
-**Files:** server/src/services/userService.js、middleware/auth.js、middleware/validator.js、routes/fortune.js、services/fortuneService.js、controllers/petController.js、models/Pet.js、前端富文本转换模块；README/server README/环境示例；密码/JWT/输入/原子库存回归。
+**Files:** server/src/services/userService.js、middleware/auth.js、services/fortuneService.js、controllers/aiController.js、services/aiService.js、services/multiAgentService.js、utils/aiInput.js、utils/fortuneInput.js、controllers/petController.js、services/petService.js、models/Pet.js、models/User.js、前端富文本转换模块；README/server README/环境示例；密码/JWT/输入/原子库存回归。middleware/validator.js、routes/fortune.js 只读核对既有调用链；输入限制集中于 controller/service 共享入口，避免相同规则在路由重复维护。
 
 **Interfaces:** 密码格式 scrypt$N$r$p$salt$hash，独立随机盐与固定可核验成本；旧 SHA-256 成功验证后升级。JWT 新签名带 issuer/audience、算法固定 HS256；无 claims 的旧 token 仅在明确配置截止日内兼容，错误 claims 不接受。
 
