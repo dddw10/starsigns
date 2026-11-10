@@ -98,6 +98,25 @@ function shouldSkipDuplicate({ lastPushDate, today, force }) {
   return alreadyPushedToday(lastPushDate, today);
 }
 
+// Mongo pipeline 使用当前余额；发送开始时的快照不能覆盖后来获得的授权。
+function sendSettlement(claim, result, today) {
+  const sameCancellation = { $eq: [{ $ifNull: ['$cancelEpoch', 0] }, claim.cancelEpoch || 0] };
+  const sameAuthorization = { $eq: [{ $ifNull: ['$authEpoch', 0] }, claim.authEpoch || 0] };
+  const state = result.success ? 'success' : result.outcome === 'unknown' ? 'unknown' : 'failed';
+  const set = { sendState: state };
+  if (result.success) {
+    set.remainingQuota = { $cond: [sameCancellation, { $max: [0, { $subtract: ['$remainingQuota', 1] }] }, '$remainingQuota'] };
+    set.lastPushDate = { $literal: today };
+    set.lastPushAt = new Date();
+    set.pushCount = { $add: [{ $ifNull: ['$pushCount', 0] }, 1] };
+  } else if (state === 'failed' && result.errcode === ERRCODE_USER_REFUSED) {
+    set.remainingQuota = { $cond: [{ $and: [sameCancellation, sameAuthorization] }, 0, '$remainingQuota'] };
+  }
+  return [{ $set: set }, { $set: {
+    status: { $cond: [{ $and: [{ $eq: ['$status', 'active'] }, { $lte: ['$remainingQuota', 0] }] }, 'inactive', '$status'] },
+  } }];
+}
+
 module.exports = {
   PUSH_MAX_QUOTA,
   PUSH_TIME_LABEL,
@@ -109,4 +128,5 @@ module.exports = {
   nextStateAfterSend,
   alreadyPushedToday,
   shouldSkipDuplicate,
+  sendSettlement,
 };

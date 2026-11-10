@@ -28,12 +28,23 @@ beforeEach(() => {
     return result;
   });
   jest.spyOn(PushSubscription, 'findOne').mockImplementation(async () => subscriptions[0] || null);
+  jest.spyOn(PushSubscription.collection, 'indexes').mockResolvedValue([
+    { key: { userId: 1, templateId: 1 }, unique: true },
+  ]);
   jest.spyOn(PushSubscription, 'create').mockImplementation(async data => {
     const sub = { _id: 'sub-1', ...data };
     subscriptions.push(sub);
     return sub;
   });
   jest.spyOn(PushSubscription, 'find').mockImplementation(() => ({ populate: async () => subscriptions }));
+  jest.spyOn(PushSubscription, 'findOneAndUpdate').mockImplementation(async (_query, update) => {
+    if (!subscriptions[0]) subscriptions.push({ _id: 'sub-1', userId: user, openid: user.openid,
+      templateId: 'fake-template', status: 'active', remainingQuota: 1, expireAt: new Date(Date.now() + 86400000) });
+    if (update.$set) Object.assign(subscriptions[0], update.$set);
+    return subscriptions[0];
+  });
+  jest.spyOn(PushSubscription, 'exists').mockResolvedValue({ _id: 'sub-1' });
+  jest.spyOn(PushSubscription, 'updateOne').mockResolvedValue({ matchedCount: 1 });
   jest.spyOn(PushLog, 'create').mockImplementation(async data => data);
   jest.spyOn(axios, 'get').mockResolvedValue({ data: { access_token: 'fake-access-token', expires_in: 7200 } });
   jest.spyOn(axios, 'post').mockImplementation(async (_url, body) => {
@@ -77,7 +88,7 @@ test('a current verified WeChat identity can subscribe and receive its message',
   expect(stats).toMatchObject({ success: 1, failed: 0 });
   expect(messages).toHaveLength(1);
   expect(messages[0]).toMatchObject({ touser: 'real-wechat-openid', template_id: 'fake-template' });
-  expect(subscriptions[0].remainingQuota).toBe(0);
+  // Quota/claim persistence is covered against real Mongo in push-concurrency.mongo.test.js.
 });
 
 test('a stale subscription openid cannot route a message to another identity', async () => {

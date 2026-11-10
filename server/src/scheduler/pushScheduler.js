@@ -12,7 +12,7 @@ function isPrimaryInstance() {
 }
 
 // 多机部署时再叠一把 Redis 锁：同一天只有抢到锁的那台机器执行。
-// 拿不到 Redis 就降级为只靠实例守卫（单机部署下够用）。
+// Redis 只减少重复扫描；真正的并发安全由 Mongo 唯一订阅及条件认领保证。
 async function acquireDailyLock(dateKey) {
   let redis = null;
   try {
@@ -49,14 +49,13 @@ async function runDailyPush() {
   }
 
   try {
-    // 不传 force：定时任务必须保留当日去重，它是 cluster 多 worker
-    // 重复注册时的最后一道兜底。force 只有管理员手动接口会传
+    // 不传 force；普通任务同日最多认领一次，未决结果需人工核验。
     const result = await pushService.triggerDailyPush();
     if (!result.configured) return;
     console.log(
       `[push] ${result.date} 每日运势推送完成：命中 ${result.total} 条，` +
-      `成功 ${result.success}，失败 ${result.failed}，` +
-      `跳过 ${result.skipped}（缺生辰 ${result.skippedNoBirthInfo}，当日已推 ${result.skippedAlreadyPushed}）`
+      `成功 ${result.success}，失败 ${result.failed}，结果未知 ${result.unknown}，` +
+      `跳过 ${result.skipped}（缺生辰 ${result.skippedNoBirthInfo}，当日已推 ${result.skippedAlreadyPushed}，认领受阻 ${result.skippedClaimed}）`
     );
   } catch (error) {
     console.error('[push] 每日运势推送失败:', error.message);

@@ -46,11 +46,19 @@ const pushSubscriptionSchema = new mongoose.Schema(
     },
 
     // 最近一次成功发送对应的北京日期（YYYY-MM-DD），用于当日去重。
-    // 有了它，triggerDailyPush() 重复触发（cluster / 管理员手动重试）不会重复发、不会重复扣配额。
+    // 普通任务同时检查成功日期和认领日期；并发安全由 sendToken 条件认领保证。
     lastPushDate: {
       type: String,
       default: '',
     },
+
+    // pending/unknown 没有自动过期；取消和重新授权也不能解除未决投递。
+    sendState: { type: String, enum: ['idle', 'pending', 'success', 'failed', 'unknown'], default: 'idle' },
+    sendToken: { type: String, default: '' },
+    lastAttemptDate: { type: String, default: '' },
+    claimedAt: { type: Date, default: null },
+    cancelEpoch: { type: Number, default: 0 },
+    authEpoch: { type: Number, default: 0 },
 
     // 订阅时间
     subscribedAt: {
@@ -78,10 +86,14 @@ const pushSubscriptionSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    // 唯一索引只能由停写后的显式迁移建立，启动不能隐式迁移旧数据。
+    autoIndex: false,
+    autoCreate: false,
   }
 );
 
 // 索引
+pushSubscriptionSchema.index({ userId: 1, templateId: 1 }, { unique: true });
 pushSubscriptionSchema.index({ openid: 1, templateId: 1 });
 pushSubscriptionSchema.index({ status: 1, expireAt: 1 });
 pushSubscriptionSchema.index({ userId: 1, status: 1 });
@@ -93,3 +105,7 @@ const PushSubscription = mongoose.model('PushSubscription', pushSubscriptionSche
 module.exports = PushSubscription;
 module.exports.SUBSCRIPTION_TTL_DAYS = SUBSCRIPTION_TTL_DAYS;
 module.exports.ttlFromNow = ttlFromNow;
+
+module.exports.hasUniqueSubscriptionIndex = (indexes) => indexes.some(index =>
+  index.unique === true && !index.partialFilterExpression && !index.sparse &&
+  Object.keys(index.key).length === 2 && index.key.userId === 1 && index.key.templateId === 1);

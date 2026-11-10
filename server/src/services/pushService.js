@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { randomUUID } = require('crypto');
 const PushSubscription = require('../models/PushSubscription');
 const PushLog = require('../models/PushLog');
 const User = require('../models/User');
@@ -11,8 +12,7 @@ const {
   PUSH_MAX_QUOTA,
   PUSH_TIME_LABEL,
   ERRCODE_DATA_MISMATCH,
-  nextQuotaAfterSubscribe,
-  nextStateAfterSend,
+  sendSettlement,
   shouldSkipDuplicate,
 } = require('./push/quota');
 
@@ -30,6 +30,16 @@ function httpError(message, status, expose) {
 }
 
 class PushService {
+  async _requireUniqueIndex() {
+    let indexes = [];
+    try { indexes = await PushSubscription.collection.indexes(); }
+    catch (error) { if (error.code !== 26) throw error; }
+    if (!PushSubscription.hasUniqueSubscriptionIndex(indexes)) {
+      const error = httpError('推送订阅尚未完成唯一索引迁移；请暂停写入及发送，运行 scripts/migrate-push-subscriptions.js 预览并按运行说明处理', 503, true);
+      error.code = 'PUSH_MIGRATION_REQUIRED';
+      throw error;
+    }
+  }
   // 推送时间的唯一来源。客户端从 GET /api/config 取，不再自己写死文案
   get pushTimeLabel() {
     return PUSH_TIME_LABEL;
@@ -96,12 +106,12 @@ class PushService {
     await user.save();
 
     // 关掉开关就该真的不再推送，而不是只改一个没人读的字段
-    let sub = await this._findSubscription(userId);
-    if (!pushEnabled && sub && (sub.remainingQuota > 0 || sub.status === 'active')) {
-      sub.remainingQuota = 0;
-      sub.status = 'inactive';
-      await sub.save();
+    if (!pushEnabled && wechatConfig.templates.dailyFortune) {
+      await PushSubscription.updateMany({ userId, templateId: wechatConfig.templates.dailyFortune }, {
+        $set: { status: 'inactive', remainingQuota: 0 }, $inc: { cancelEpoch: 1 },
+      });
     }
+    const sub = await this._findSubscription(userId);
 
     return this._buildSettings(user, sub);
   }
@@ -128,23 +138,26 @@ class PushService {
       throw httpError('当前登录方式不支持微信服务通知', 400);
     }
 
-    let sub = await PushSubscription.findOne({ userId, templateId: expected });
-    if (sub) {
-      sub.openid = user.openid;
-      sub.status = 'active';
-      sub.remainingQuota = nextQuotaAfterSubscribe(sub.remainingQuota);
-      sub.subscribedAt = new Date();
-      sub.expireAt = ttlFromNow();
-      await sub.save();
-    } else {
-      sub = await PushSubscription.create({
-        userId,
-        openid: user.openid,
-        templateId: expected,
-        status: 'active',
-        remainingQuota: nextQuotaAfterSubscribe(0),
-        expireAt: ttlFromNow(),
-      });
+    await this._requireUniqueIndex();
+    const key = { userId: user._id, templateId: expected };
+    const update = [{ $set: {
+      openid: { $literal: user.openid }, status: 'active',
+      remainingQuota: { $min: [PUSH_MAX_QUOTA, { $add: [{ $ifNull: ['$remainingQuota', 0] }, 1] }] },
+      subscribedAt: new Date(), expireAt: ttlFromNow(),
+      createdAt: { $ifNull: ['$createdAt', new Date()] },
+      lastPushDate: { $ifNull: ['$lastPushDate', ''] },
+      sendState: { $ifNull: ['$sendState', 'idle'] },
+      sendToken: { $ifNull: ['$sendToken', ''] },
+      cancelEpoch: { $ifNull: ['$cancelEpoch', 0] },
+      authEpoch: { $add: [{ $ifNull: ['$authEpoch', 0] }, 1] },
+    } }];
+    let sub;
+    try {
+      sub = await PushSubscription.findOneAndUpdate(key, update, { upsert: true, new: true });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      sub = await PushSubscription.findOneAndUpdate(key, update, { new: true });
+      if (!sub) throw error;
     }
 
     if (!user.pushSettings || !user.pushSettings.pushEnabled || !user.subscribeAccepted) {
@@ -168,7 +181,7 @@ class PushService {
     if (target) {
       await PushSubscription.updateMany(
         { userId, templateId: target },
-        { $set: { status: 'inactive', remainingQuota: 0 } }
+        { $set: { status: 'inactive', remainingQuota: 0 }, $inc: { cancelEpoch: 1 } }
       );
     }
 
@@ -197,6 +210,7 @@ class PushService {
 
   // 发送订阅消息。data 必须已经是 {字段名: {value}} 形态，且键与模板参数**完全一致**
   async sendSubscribeMessage(openid, templateId, data, options = {}) {
+    let dispatched = false;
     try {
       const accessToken = await this._getAccessToken();
 
@@ -208,12 +222,15 @@ class PushService {
         data,
       };
 
+      dispatched = true;
       const result = await axios.post(
         `${wechatConfig.sendMessageUrl}?access_token=${accessToken}`,
-        body
+        body,
+        { timeout: 15000 }
       );
 
-      const errcode = result.data && typeof result.data.errcode === 'number' ? result.data.errcode : -1;
+      const hasCode = Boolean(result.data && Number.isInteger(result.data.errcode));
+      const errcode = hasCode ? result.data.errcode : -1;
       const errmsg = (result.data && result.data.errmsg) || '';
 
       if (errcode === ERRCODE_DATA_MISMATCH) {
@@ -228,10 +245,10 @@ class PushService {
         );
       }
 
-      return { success: errcode === 0, errcode, errmsg };
+      return { success: errcode === 0, errcode, errmsg, outcome: hasCode ? (errcode === 0 ? 'success' : 'failed') : 'unknown' };
     } catch (error) {
       console.error('发送订阅消息失败:', error.message);
-      return { success: false, errcode: -1, errmsg: error.message };
+      return { success: false, errcode: -1, errmsg: error.message, outcome: dispatched ? 'unknown' : 'failed' };
     }
   }
 
@@ -274,7 +291,7 @@ class PushService {
   async checkExpiredSubscriptions() {
     const result = await PushSubscription.updateMany(
       { status: 'active', expireAt: { $lt: new Date() } },
-      { $set: { status: 'expired', remainingQuota: 0 } }
+      { $set: { status: 'expired', remainingQuota: 0 }, $inc: { cancelEpoch: 1 } }
     );
     return result.modifiedCount || 0;
   }
@@ -284,12 +301,12 @@ class PushService {
    *
    * @param {object}  [options]
    * @param {boolean} [options.force] 无视「今天已经推过」这条去重，重新发一遍。
-   *   **只给管理员的手动接口用，定时任务永远不传**——去重是 cluster 多 worker
-   *   重复注册时唯一的兜底，定时任务一旦能绕过就等于允许一天发 N 条。
+   *   只给管理员的手动接口用，定时任务永远不传。两者共用数据库条件认领。
    *   手动接口需要它的场景是真实存在的：改完字段映射要复验、早上那轮内容发错了要补推、
    *   上线自检。没有它，`POST /api/push/trigger-daily` 在当天推送完成之后就成了一个
    *   永远回 skipped 的死接口——而它整个存在的理由就是自检和补推。
-   *   force 只放开日期去重这一条：配额照旧要求 > 0、照旧只有成功才扣、43101 照旧清零。
+   *   force 放开成功/尝试日期去重；pending/unknown 仍阻塞，额度/取消边界不变。
+   *   43101 仅在发送期间未新增授权且未取消时清零。
    */
   async triggerDailyPush(options = {}) {
     const force = Boolean(options.force);
@@ -303,6 +320,8 @@ class PushService {
       skipped: 0,
       skippedNoBirthInfo: 0,
       skippedAlreadyPushed: 0,
+      skippedClaimed: 0,
+      unknown: 0,
       date: today,
       configured: true,
       forced: force,
@@ -319,6 +338,7 @@ class PushService {
 
     const templateId = wechatConfig.templates.dailyFortune;
     const mapping = wechatConfig.templates.dailyFortuneFields;
+    await this._requireUniqueIndex();
 
     const subscriptions = await PushSubscription.find({
       templateId,
@@ -333,6 +353,8 @@ class PushService {
     const fortuneService = require('./fortuneService');
 
     for (const sub of subscriptions) {
+      let claim;
+      let dispatched = false;
       try {
         const user = sub.userId;
         if (!canReceiveWechatPush(user) || sub.openid !== user.openid) {
@@ -352,13 +374,31 @@ class PushService {
           continue;
         }
 
+        claim = await PushSubscription.findOneAndUpdate({
+          _id: sub._id, openid: user.openid, status: 'active', remainingQuota: { $gt: 0 },
+          expireAt: { $gt: new Date() }, sendState: { $nin: ['pending', 'unknown'] },
+          // CAS 代际让同批 force 竞争者也只能认领一次。
+          sendToken: sub.sendToken || { $in: ['', null] },
+          ...(!force ? { lastPushDate: { $ne: today }, lastAttemptDate: { $ne: today } } : {}),
+        }, { $set: { sendState: 'pending', sendToken: randomUUID(), lastAttemptDate: today, claimedAt: new Date() } }, { new: true });
+        if (!claim) { stats.skipped += 1; stats.skippedClaimed += 1; continue; }
+
         // 走和小程序完全同一条路：getDailyFortune 会补齐 dayMaster 并共用同一份 Redis 缓存。
         // 旧代码直接 generateDailyFortune(user.birthInfo)，而 birthInfo 里没有 dayMaster，
         // 于是分数不加减五行、relation 恒为 companion——推送里的分数和宜忌和 App 里不是一份
         const fortune = await fortuneService.getDailyFortune(user._id, today);
         const data = buildTemplateData(mapping, fortune);
 
-        const result = await this.sendSubscribeMessage(sub.openid, templateId, data);
+        const stillActive = await PushSubscription.exists({ _id: claim._id, sendToken: claim.sendToken,
+          cancelEpoch: claim.cancelEpoch || { $in: [0, null] }, status: 'active', remainingQuota: { $gt: 0 }, expireAt: { $gt: new Date() } });
+        if (!stillActive) throw new Error('订阅已取消或过期，未发送');
+        dispatched = true;
+        const result = await this.sendSubscribeMessage(claim.openid, templateId, data);
+        // 先原子落账再写审计日志；日志写失败不能使已发送消息自动重试。
+        await PushSubscription.updateOne({ _id: claim._id, sendToken: claim.sendToken, sendState: 'pending' }, sendSettlement(claim, result, today));
+        if (result.success) stats.success += 1;
+        else if (result.outcome === 'unknown') stats.unknown += 1;
+        else stats.failed += 1;
 
         await PushLog.create({
           userId: user._id,
@@ -378,42 +418,26 @@ class PushService {
               luckyColorName: fortune.luckyColorName,
             },
           },
-          status: result.success ? 'success' : 'failed',
+          status: result.success ? 'success' : result.outcome === 'unknown' ? 'unknown' : 'failed',
           errcode: result.errcode,
           errmsg: result.errmsg,
           pushedAt: new Date(),
-        });
-
-        const next = nextStateAfterSend({
-          remainingQuota: sub.remainingQuota,
-          success: result.success,
-          errcode: result.errcode,
-          dateString: today,
-        });
-
-        sub.remainingQuota = next.remainingQuota;
-        sub.status = next.status;
-        if (next.lastPushDate) sub.lastPushDate = next.lastPushDate;
-        if (result.success) {
-          sub.lastPushAt = new Date();
-          sub.pushCount += 1;
-          stats.success += 1;
-        } else {
-          stats.failed += 1;
-        }
-        await sub.save();
+        }).catch(error => console.error('推送日志写入失败:', error.message));
       } catch (error) {
         console.error('推送失败:', error.message);
-        stats.failed += 1;
+        if (claim) {
+          // 崩溃/落账失败时仍是 pending；这里的更新也失败时必须保持阻塞。
+          const outcome = dispatched ? 'unknown' : 'failed';
+          await PushSubscription.updateOne({ _id: claim._id, sendToken: claim.sendToken, sendState: 'pending' },
+            { $set: { sendState: outcome } }).catch(err => console.error('推送认领结果写入失败:', err.message));
+          if (outcome === 'unknown') stats.unknown += 1;
+          else stats.failed += 1;
+        } else stats.failed += 1;
       }
     }
 
     return stats;
   }
-
-
-
-
 }
 
 module.exports = new PushService();

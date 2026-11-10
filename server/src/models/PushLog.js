@@ -38,7 +38,7 @@ const pushLogSchema = new mongoose.Schema(
     // 推送状态
     status: {
       type: String,
-      enum: ['pending', 'success', 'failed'],
+      enum: ['pending', 'success', 'failed', 'unknown'],
       default: 'pending',
       index: true,
     },
