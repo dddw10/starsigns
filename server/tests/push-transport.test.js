@@ -27,3 +27,15 @@ test('a timeout after dispatch is unknown, never a definite rejection', async ()
   jest.spyOn(axios, 'post').mockRejectedValue(new Error('timeout'));
   expect(await push.sendSubscribeMessage('fake-openid', 'fake-template', {})).toMatchObject({ success: false, outcome: 'unknown' });
 });
+test('send preflight runs after token retrieval and a revoked claim never reaches POST', async () => {
+  let active = true;
+  const sent = [];
+  jest.spyOn(axios, 'get').mockImplementation(async () => {
+    active = false;
+    return { data: { access_token: 'fake-token' } };
+  });
+  jest.spyOn(axios, 'post').mockImplementation(async () => { sent.push('message'); return { data: { errcode: 0 } }; });
+  expect(await push.sendSubscribeMessage('fake-openid', 'fake-template', {}, { beforeSend: async () => active }))
+    .toMatchObject({ success: false, outcome: 'failed' });
+  expect(sent).toEqual([]);
+});

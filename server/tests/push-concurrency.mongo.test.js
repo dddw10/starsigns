@@ -120,6 +120,48 @@ suite('real Mongo push concurrency (isolated opt-in)', () => {
     expect(deliveries).toHaveLength(0);
     expect(await read()).toMatchObject({ remainingQuota: 0, status: 'inactive' });
   });
+  test.each(['cancel', 'reauthorize', 'expire', 'active'])('token wait rechecks claim before POST: %s', async action => {
+    await authorize(2);
+    const entered = deferred(); const release = deferred();
+    axios.get.mockImplementation(async () => {
+      entered.resolve(); await release.promise;
+      return { data: { access_token: 'fake-delayed-token', expires_in: 7200 } };
+    });
+    const running = push.triggerDailyPush();
+    await entered.promise;
+    try {
+      if (action === 'cancel' || action === 'reauthorize') await push.unsubscribe(userId);
+      if (action === 'reauthorize') await push.subscribe(userId);
+      if (action === 'expire') await PushSubscription.updateOne({ userId }, { $set: { expireAt: new Date(0) } });
+    } finally { release.resolve(); }
+    const stats = await running;
+    if (action === 'active') {
+      expect(deliveries).toHaveLength(1);
+      expect(await read()).toMatchObject({ remainingQuota: 1, sendState: 'success', pushCount: 1 });
+      expect(stats).toMatchObject({ success: 1, failed: 0, unknown: 0 });
+    } else {
+      expect(deliveries).toHaveLength(0);
+      expect(await read()).toMatchObject({ remainingQuota: action === 'cancel' ? 0 : action === 'reauthorize' ? 1 : 2,
+        sendState: 'failed', lastPushDate: '' });
+      expect(stats).toMatchObject({ success: 0, failed: 1, unknown: 0 });
+    }
+  });
+  test('known cancellation before POST stays failed even if initial settlement write fails', async () => {
+    await authorize(2);
+    axios.get.mockImplementation(async () => {
+      await push.unsubscribe(userId);
+      return { data: { access_token: 'fake-token', expires_in: 7200 } };
+    });
+    const update = PushSubscription.updateOne.bind(PushSubscription);
+    jest.spyOn(PushSubscription, 'updateOne').mockImplementation((query, change) => {
+      if (Array.isArray(change)) return Promise.reject(new Error('settlement unavailable'));
+      return update(query, change);
+    });
+    const stats = await push.triggerDailyPush();
+    expect(deliveries).toHaveLength(0);
+    expect(await read()).toMatchObject({ remainingQuota: 0, status: 'inactive', sendState: 'failed' });
+    expect(stats).toMatchObject({ success: 0, failed: 1, unknown: 0 });
+  });
   test('stale refusal does not clear a new authorization', async () => {
     await authorize(2);
     post.mockImplementation(async () => { await push.subscribe(userId); return { data: { errcode: 43101 } }; });
