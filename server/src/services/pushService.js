@@ -12,6 +12,7 @@ const {
   PUSH_MAX_QUOTA,
   PUSH_TIME_LABEL,
   ERRCODE_DATA_MISMATCH,
+  ERRCODE_USER_REFUSED,
   sendSettlement,
   shouldSkipDuplicate,
 } = require('./push/quota');
@@ -358,7 +359,8 @@ class PushService {
 
     for (const sub of subscriptions) {
       let claim;
-      let mayHaveDelivered = false;
+      let result;
+      let mustKeepClaimBlocked = false;
       try {
         const user = sub.userId;
         if (!canReceiveWechatPush(user) || sub.openid !== user.openid) {
@@ -396,9 +398,10 @@ class PushService {
         const beforeSend = () => PushSubscription.exists({ _id: claim._id, sendToken: claim.sendToken, sendState: 'pending',
           cancelEpoch: claim.cancelEpoch || { $in: [0, null] }, status: 'active', remainingQuota: { $gt: 0 }, expireAt: { $gt: new Date() } });
         if (!(await beforeSend())) throw new Error('订阅已取消或过期，未发送');
-        mayHaveDelivered = true;
-        const result = await this.sendSubscribeMessage(claim.openid, templateId, data, { beforeSend });
-        mayHaveDelivered = result.outcome !== 'failed';
+        mustKeepClaimBlocked = true;
+        result = await this.sendSubscribeMessage(claim.openid, templateId, data, { beforeSend });
+        // 43101 仍需按 epoch 条件清零；结算失败不能仅释放 failed 而留下旧额度。
+        mustKeepClaimBlocked = result.outcome !== 'failed' || result.errcode === ERRCODE_USER_REFUSED;
         // 先原子落账再写审计日志；日志写失败不能使已发送消息自动重试。
         await PushSubscription.updateOne({ _id: claim._id, sendToken: claim.sendToken, sendState: 'pending' }, sendSettlement(claim, result, today));
         if (result.success) stats.success += 1;
@@ -431,8 +434,13 @@ class PushService {
       } catch (error) {
         console.error('推送失败:', error.message);
         if (claim) {
+          if (result?.errcode === ERRCODE_USER_REFUSED) {
+            console.error('43101 结算未完成，需人工核验认领:', {
+              subscriptionId: String(claim._id), sendToken: claim.sendToken, errcode: result.errcode, errmsg: result.errmsg,
+            });
+          }
           // 崩溃/落账失败时仍是 pending；这里的更新也失败时必须保持阻塞。
-          const outcome = mayHaveDelivered ? 'unknown' : 'failed';
+          const outcome = mustKeepClaimBlocked ? 'unknown' : 'failed';
           await PushSubscription.updateOne({ _id: claim._id, sendToken: claim.sendToken, sendState: 'pending' },
             { $set: { sendState: outcome } }).catch(err => console.error('推送认领结果写入失败:', err.message));
           if (outcome === 'unknown') stats.unknown += 1;

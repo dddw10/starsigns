@@ -162,6 +162,33 @@ suite('real Mongo push concurrency (isolated opt-in)', () => {
     expect(await read()).toMatchObject({ remainingQuota: 0, status: 'inactive', sendState: 'failed' });
     expect(stats).toMatchObject({ success: 0, failed: 1, unknown: 0 });
   });
+  test.each([false, true])('refusal settlement failure stays blocked without clearing newer authorization: %s', async reauthorize => {
+    await authorize(2);
+    post.mockImplementation(async (_url, body) => {
+      deliveries.push(body);
+      if (reauthorize) await push.subscribe(userId);
+      return { data: { errcode: 43101, errmsg: 'user refused' } };
+    });
+    const update = PushSubscription.updateOne.bind(PushSubscription);
+    let failFirstSettlement = true;
+    jest.spyOn(PushSubscription, 'updateOne').mockImplementation((query, change) => {
+      if (Array.isArray(change) && failFirstSettlement) {
+        failFirstSettlement = false;
+        return Promise.reject(new Error('settlement unavailable'));
+      }
+      return update(query, change);
+    });
+    const stats = await push.triggerDailyPush();
+    expect(await read()).toMatchObject({ remainingQuota: reauthorize ? 3 : 2, status: 'active', sendState: 'unknown' });
+    expect(stats).toMatchObject({ success: 0, failed: 0, unknown: 1 });
+    const diagnostic = console.error.mock.calls.find(([, details]) => details?.errcode === 43101)?.[1];
+    expect(diagnostic).toMatchObject({ subscriptionId: String((await read())._id), sendToken: (await read()).sendToken,
+      errcode: 43101, errmsg: 'user refused' });
+    await push.triggerDailyPush({ force: true });
+    await update({ userId }, { $set: { lastAttemptDate: '2000-01-01' } });
+    await push.triggerDailyPush();
+    expect(deliveries).toHaveLength(1);
+  });
   test('stale refusal does not clear a new authorization', async () => {
     await authorize(2);
     post.mockImplementation(async () => { await push.subscribe(userId); return { data: { errcode: 43101 } }; });
