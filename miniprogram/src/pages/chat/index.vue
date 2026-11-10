@@ -253,7 +253,7 @@ const cancelRequest = () => {
   previous?.abort?.()
 }
 onUnload(cancelRequest)
-watch(() => userStore.sessionVersion, () => { if (activeTask) cancelRequest() })
+watch(() => userStore.sessionVersion, cancelRequest)
 const useStream = ref(true) // 是否开启流式输出，默认开启
 
 watch(useStream, cancelRequest)
@@ -332,8 +332,8 @@ const scrollToBottom = () => {
 const sendMessage = async () => {
   if (!inputMsg.value.trim() || loading.value) return
   const operation = ++requestVersion
-  let sessionVersion = null
-  const current = () => operation === requestVersion && (sessionVersion === null || isSessionCurrent(sessionVersion))
+  const sessionVersion = getSessionVersion()
+  const current = () => operation === requestVersion && isSessionCurrent(sessionVersion)
   loading.value = true
 
   // 1. 如果未登录，强制进行静默登录获取 Token，保证后端 Mongoose 能够正确存库
@@ -358,7 +358,6 @@ const sendMessage = async () => {
   try { await waitForSession() }
   catch (error) { if (current()) { loading.value = false; uni.showToast({ title: error.message, icon: 'none' }) }; return }
   if (!current()) return
-  sessionVersion = getSessionVersion()
 
   const userQuery = inputMsg.value.trim()
   inputMsg.value = ''
@@ -567,7 +566,9 @@ const sendMessage = async () => {
                   if (dataVal === '[DONE]') continue
                   try {
                     const parsed = JSON.parse(dataVal)
-                    if (parsed.agent) {
+                    if (parsed.error) {
+                      uni.showToast({ title: '推演暂时无法完成，请稍后重试', icon: 'none' })
+                    } else if (parsed.agent) {
                       if (parsed.content) {
                         compiledContent += parsed.content
                       }
