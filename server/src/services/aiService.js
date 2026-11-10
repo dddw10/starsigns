@@ -35,7 +35,7 @@ class AIService {
    */
   async chat({ messages, birthInfo, gender, userId, stream = true, signal }) {
     signal?.throwIfAborted();
-    validateAIInput({ messages, birthInfo, gender, stream });
+    ({ birthInfo } = validateAIInput({ messages, birthInfo, gender, stream }));
     const client = this.getClient();
 
     // 创建 Langfuse 追踪

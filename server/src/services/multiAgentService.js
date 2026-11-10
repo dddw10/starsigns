@@ -89,7 +89,7 @@ class MultiAgentService {
    * 排盘失败（时辰认不出、农历日期不存在等）不阻断会谈，退化成「未提供生辰八字」。
    */
   async buildBaziString(birthInfo, gender) {
-    if (!birthInfo || !birthInfo.solarDate || !birthInfo.birthTime) {
+    if (!birthInfo || !birthInfo.solarDate || birthInfo.birthTime == null || birthInfo.birthTime === '') {
       return '未提供生辰八字';
     }
 
@@ -117,7 +117,7 @@ class MultiAgentService {
    */
   councilStream({ messages, birthInfo, gender, userId, signal }) {
     signal?.throwIfAborted();
-    validateAIInput({ messages, birthInfo, gender });
+    ({ birthInfo } = validateAIInput({ messages, birthInfo, gender }));
     const client = this.getClient();
     const userQuestion = messages[messages.length - 1].content;
     
@@ -247,7 +247,7 @@ class MultiAgentService {
    */
   async councilNonStream({ messages, birthInfo, gender, userId, signal }) {
     signal?.throwIfAborted();
-    validateAIInput({ messages, birthInfo, gender });
+    ({ birthInfo } = validateAIInput({ messages, birthInfo, gender }));
     const client = this.getClient();
     const userQuestion = messages[messages.length - 1].content;
     

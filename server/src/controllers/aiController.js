@@ -17,9 +17,10 @@ async function respond(req, res, next, council) {
   const connected = () => !signal.aborted && !res.destroyed && !res.writableFinished;
   try {
     if (req.aborted || res.destroyed) { abort(); return; }
-    const { messages, birthInfo, gender, stream: requested } = req.body;
-    try { validateAIInput(req.body); }
+    let input;
+    try { input = validateAIInput(req.body); }
     catch (error) { return res.status(400).json({ code: 400, message: error.message }); }
+    const { messages, birthInfo, gender, stream: requested } = input;
     const params = { messages, birthInfo, gender, userId: req.user?.userId || null, signal };
     if (requested === false) {
       const data = council

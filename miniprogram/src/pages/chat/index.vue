@@ -360,6 +360,12 @@ const sendMessage = async () => {
   if (!current()) return
 
   const userQuery = inputMsg.value.trim()
+  if (!userQuery) { loading.value = false; return }
+  if (userQuery.length > 4000) {
+    loading.value = false
+    uni.showToast({ title: '问题不能超过4000字符，请精简后重试', icon: 'none' })
+    return
+  }
   inputMsg.value = ''
   
   // 收起生辰设置卡片
@@ -376,14 +382,16 @@ const sendMessage = async () => {
   loadingText.value = chatMode.value === 'private' ? '大师正在推演天机...' : '三位大师正在展开研讨...'
   scrollToBottom()
 
-  // 构建历史记录
+  // 只裁剪发送上下文，保留完整气泡；与服务端单条4000、总计20000的协议一致。
   const apiHistory = messages.value
-    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .filter(m => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
     .slice(-6)
     .map(m => ({
       role: m.role,
-      content: m.content
+      content: m.content.slice(0, 4000).trim()
     }))
+    .filter(m => m.content)
+  while (apiHistory.reduce((total, m) => total + m.content.length, 0) > 20000) apiHistory.shift()
 
   const requestUrl = chatMode.value === 'private' 
     ? `${BASE_URL}/api/fortune/ai-chat` 
@@ -537,7 +545,7 @@ const sendMessage = async () => {
         if (!active()) return
         console.log('Native SSE Stream Request Success, Status Code:', res.statusCode)
 
-        if (res.statusCode === 401 && !receivedAnyChunk) {
+        if (res.statusCode === 401) {
           recoverAndRetry(sendStream)
           return
         }

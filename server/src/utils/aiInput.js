@@ -10,11 +10,47 @@ function validateBirthDate(date, calendar = 'solar') {
 
 function validateBirthTime(value) {
   if (!['string', 'number'].includes(typeof value)) invalid('出生时辰值无效');
+  if (typeof value === 'string' && value.length > 16) invalid('出生时辰值无效');
   const raw = String(value).trim();
   if (!Object.hasOwn(BIRTH_TIME_HOURS, raw) && !Object.hasOwn(BIRTH_TIME_HOURS, `${raw}时`)
     && !(/^\d{1,2}$/.test(raw) && Number(raw) <= 23)) invalid('出生时辰值无效');
   const hour = resolveHour(value);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) invalid('出生时辰值无效');
+}
+
+function projectBirthInfo(value) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) invalid('生辰格式无效');
+  const birth = {};
+  // 只复制 User 生辰及历法字段，未知内容和自定义序列化不会进入模型或追踪。
+  for (const [key, maxLength] of Object.entries({ solarDate: 10, lunarDate: 16,
+    yearGanZhi: 8, monthGanZhi: 8, dayGanZhi: 8, hourGanZhi: 8 })) {
+    if (!Object.hasOwn(value, key) || value[key] === undefined) continue;
+    if (typeof value[key] !== 'string' || value[key].length > maxLength) invalid('生辰字段格式或长度无效');
+    birth[key] = value[key];
+  }
+  if (Object.hasOwn(value, 'calendar') && value.calendar !== undefined) {
+    if (!['solar', 'lunar'].includes(value.calendar)) invalid('历法值无效');
+    birth.calendar = value.calendar;
+  }
+  if (birth.solarDate) validateBirthDate(birth.solarDate, birth.calendar);
+  if (Object.hasOwn(value, 'birthTime') && value.birthTime !== undefined) {
+    if (value.birthTime !== '') validateBirthTime(value.birthTime);
+    birth.birthTime = value.birthTime;
+  }
+  if (Object.hasOwn(value, 'wuxing') && value.wuxing !== undefined) {
+    const wuxing = value.wuxing;
+    if (!wuxing || typeof wuxing !== 'object' || Array.isArray(wuxing)
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(wuxing))) invalid('五行格式无效');
+    birth.wuxing = {};
+    for (const key of ['metal', 'wood', 'water', 'fire', 'earth']) {
+      if (!Object.hasOwn(wuxing, key) || wuxing[key] === undefined) continue;
+      if (!Number.isInteger(wuxing[key]) || wuxing[key] < 0 || wuxing[key] > 8) invalid('五行数值无效');
+      birth.wuxing[key] = wuxing[key];
+    }
+  }
+  return birth;
 }
 
 function validateAIInput({ messages, birthInfo, gender, stream }) {
@@ -33,12 +69,7 @@ function validateAIInput({ messages, birthInfo, gender, stream }) {
   if (total > 20000) invalid('对话总长度不能超过20000字符');
   if (stream !== undefined && typeof stream !== 'boolean') invalid('stream 须为布尔值');
   if (gender !== undefined && !['', 'male', 'female'].includes(gender)) invalid('性别值无效');
-  if (birthInfo !== undefined) {
-    if (!birthInfo || typeof birthInfo !== 'object' || Array.isArray(birthInfo)) invalid('生辰格式无效');
-    if (birthInfo.calendar !== undefined && !['solar', 'lunar'].includes(birthInfo.calendar)) invalid('历法值无效');
-    if (birthInfo.solarDate) validateBirthDate(birthInfo.solarDate, birthInfo.calendar);
-    if (birthInfo.birthTime !== undefined && birthInfo.birthTime !== '') validateBirthTime(birthInfo.birthTime);
-  }
+  return { messages, birthInfo: projectBirthInfo(birthInfo), gender, stream };
 }
 
 function validateToolArguments(name, args) {

@@ -186,18 +186,18 @@ ADMIN_USER_IDS=                 # 也可以直接写用户 _id
 
 关掉的端点：`/bazi`、`/bazi-match`、`/tarot`、`/name`、`/name-match`、`/face-palm`、`/ai-chat`、`/council`。故意留着的：`/daily`、`/constellation/:constellation`、`/fengshui`、`/records`、`/record/:id`、`/share/:id`。这份名单由 `server/tests/audit-mode.test.js` 钉住。
 
-客户端 `auditMode` 的初值取本地存储里的上次已知值，首次启动无缓存按 `true`（对审核最安全），所以配置拉不到的时候是「关着」而不是「全开」；老用户网络抖一下不会被整片锁掉。
+客户端配置从受限的 `unknown` 状态启动，成功加载前按审核模式开启处理，不沿用缓存里的 `false`。加载失败保持受限并允许重试；只有服务端配置成功返回后才决定开放哪些功能。
 
 **开着的时候线上真实用户也用不了那 5 项**——它是送审期间打开、过审后立刻关掉的开关，不是长期状态。
 
-本地想试这个开关：把 `MOCK_BIND_PHONE` 和 `ADMIN_PHONES` 填成同一个号，然后在小程序里走一次绑定手机号。
+本地 mock 绑定手机号不会获得 `ADMIN_PHONES` 管理员权限；手机号白名单要求服务端真实微信验证且登录来源不是 `dev_mock`。本地测试账号可经维护者核验后按 `ADMIN_USER_IDS` 白名单授权，具体见[管理员与身份来源迁移](docs/operations/admin-identity.md)。生产禁止模拟登录和模拟手机号绑定，`ALLOW_MOCK_LOGIN=true` 会被服务端与部署预检拒绝，配置和发布步骤见[部署手册](docs/operations/deployment.md)。
 
 ## API 接口
 
 ### 用户接口
 - `POST /api/user/login` - 微信登录（生产环境缺微信凭证时返回 503，不降级）
 - `POST /api/user/register` / `POST /api/user/login-account` - H5 账号注册 / 登录（限流 15min / 20 次）
-- `GET /api/user/info` - 获取用户信息
+- `GET /api/user/profile` - 获取用户信息
 
 ### 算命接口
 - `POST /api/fortune/bazi` - 生辰八字（支持 `calendar: solar | lunar`）
