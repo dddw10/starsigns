@@ -1,0 +1,1 @@
+import{a9 as t,aa as a}from"./index-DWR4zNBW.js";function e(){return t("/api/pet/status")}function n(t){return a("/api/pet/feed",{itemType:t})}function r(){return a("/api/pet/interact")}function i(t){return a("/api/pet/rename",{name:t})}function p(){return a("/api/pet/draw")}export{p as d,n as f,e as g,r as i,i as r};
