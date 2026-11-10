@@ -86,6 +86,7 @@
           <text class="agent-name-tag" v-if="msg.agentName">{{ msg.agentName }}</text>
           <view class="bubble-content">
             <rich-text :nodes="formatMarkdown(msg.content)"></rich-text>
+            <text v-if="msg.status === 'stopped'">已停止</text>
           </view>
         </view>
       </view>
@@ -152,6 +153,7 @@ import { onUnload } from '@dcloudio/uni-app'
 import { BASE_URL, recoverSession, waitForSession, getSessionVersion, isSessionCurrent } from '@/api/request'
 import { formatMarkdown } from '@/utils/markdown'
 import { useAuditGuard } from '@/utils/auditGuard'
+import { readChatHistory, writeChatHistory } from '@/utils/chatHistory'
 
 const userStore = useUserStore()
 const checkAuditMode = useAuditGuard(() => blockedByAuditMode())
@@ -245,15 +247,52 @@ class Utf8Decoder {
 
 let requestVersion = 0
 let activeTask = null
+let history = null
+let historyVisible = false
+let historyTimer = null
+let historyInitialized = false
+let pageActive = true
+let historyWarningShown = false
+let historySessionVersion = userStore.sessionVersion
+const stableUserId = () => {
+  const id = userStore.userInfo?.userId || userStore.userInfo?._id
+  return typeof id === 'string' && id.trim() ? id : null
+}
+const verifiedOwner = () => userStore.isLoggedIn ? stableUserId() : null
+
+const flushHistory = (snapshot = history) => {
+  clearTimeout(historyTimer)
+  historyTimer = null
+  if (!snapshot) return
+  if (snapshot === history && historyVisible) snapshot.entries = messages.value
+  if (!writeChatHistory(snapshot.owner, snapshot.mode, snapshot.entries) && !historyWarningShown) {
+    historyWarningShown = true
+    uni.showToast({ title: '聊天记录保存失败，本次内容仍可查看', icon: 'none' })
+  }
+}
+const scheduleHistory = () => {
+  if (!history || historyTimer !== null || !pageActive) return
+  const snapshot = history
+  historyTimer = setTimeout(() => flushHistory(snapshot), 500)
+}
+const finishHistory = (stopped = false) => {
+  const entries = historyVisible ? messages.value : history?.entries || []
+  for (const message of entries) {
+    if (message.status !== 'streaming') continue
+    if (stopped) message.status = 'stopped'
+    else delete message.status
+  }
+  flushHistory()
+}
 const cancelRequest = () => {
   requestVersion++
   const previous = activeTask
   activeTask = null
   loading.value = false
+  finishHistory(true)
   previous?.abort?.()
 }
-onUnload(cancelRequest)
-watch(() => userStore.sessionVersion, cancelRequest)
+onUnload(() => { cancelRequest(); pageActive = false })
 const useStream = ref(true) // 是否开启流式输出，默认开启
 
 watch(useStream, cancelRequest)
@@ -267,12 +306,65 @@ const initWelcome = () => {
       avatar: '🔮'
     }
   ]
+  if (chatMode.value === 'council') {
+    messages.value = [{
+      role: 'assistant',
+      content: '欢迎来到【多维性格圆桌会谈】。\n在这里，东方命理妙空大师、西方占星师塞蕾娜以及心理咨询专家德叔将共同会诊施主的命运，并提供最终的命运综合报告。',
+      avatar: '🐉'
+    }]
+  }
 }
+
+const loadHistory = () => {
+  historyInitialized = true
+  const owner = verifiedOwner()
+  if (!owner) { if (!messages.value.length) initWelcome(); return }
+  if (history?.owner === owner && history.mode === chatMode.value && history.version === userStore.sessionVersion) {
+    if (historyVisible) history.entries = messages.value
+    messages.value = history.entries
+  } else {
+    const cached = readChatHistory(owner, chatMode.value)
+    if (cached?.length) messages.value = cached
+    else initWelcome()
+    history = { owner, mode: chatMode.value, version: userStore.sessionVersion, entries: messages.value }
+  }
+  historyVisible = true
+}
+
+// restoring 只隐藏展示：同账号的401请求可以继续；缓存拥有者始终保留原快照。
+watch(() => [userStore.sessionVersion, userStore.sessionStatus, userStore.isLoggedIn, stableUserId()], () => {
+  if (!pageActive) return
+  const owner = verifiedOwner()
+  const versionChanged = historySessionVersion !== userStore.sessionVersion
+  if (versionChanged || (owner && history && owner !== history.owner)) {
+    historySessionVersion = userStore.sessionVersion
+    cancelRequest()
+    history = null
+    historyVisible = false
+    messages.value = []
+    if (versionChanged) return
+  }
+  if (!owner) {
+    if (historyVisible) {
+      history.entries = messages.value
+      flushHistory()
+      historyVisible = false
+    }
+    messages.value = []
+    if (history && userStore.sessionStatus !== 'restoring') {
+      cancelRequest()
+      history = null
+    }
+    return
+  }
+  if (historyInitialized) loadHistory()
+}, { flush: 'sync' })
+if (verifiedOwner()) loadHistory()
 
 const blockedByAuditMode = async () => {
   // 简洁模式下这个页面不开放，路径直开也要挡住（服务端还会再拒一次）
   if (await checkAuditMode()) return
-  initWelcome()
+  loadHistory()
 }
 onMounted(blockedByAuditMode)
 
@@ -280,18 +372,10 @@ const switchMode = (mode) => {
   if (chatMode.value === mode) return
   cancelRequest()
   chatMode.value = mode
+  history = null
+  historyVisible = false
   messages.value = []
-  if (mode === 'private') {
-    initWelcome()
-  } else {
-    messages.value = [
-      {
-        role: 'assistant',
-        content: '欢迎来到【多维性格圆桌会谈】。\n在这里，东方命理妙空大师、西方占星师塞蕾娜以及心理咨询专家德叔将共同会诊施主的命运，并提供最终的命运综合报告。',
-        avatar: '🐉'
-      }
-    ]
-  }
+  loadHistory()
 }
 
 const toggleBirthCard = () => {
@@ -333,7 +417,8 @@ const sendMessage = async () => {
   if (!inputMsg.value.trim() || loading.value) return
   const operation = ++requestVersion
   const sessionVersion = getSessionVersion()
-  const current = () => operation === requestVersion && isSessionCurrent(sessionVersion)
+  let requestOwner = verifiedOwner()
+  const current = () => operation === requestVersion && isSessionCurrent(sessionVersion) && (!requestOwner || requestOwner === stableUserId())
   loading.value = true
 
   // 1. 如果未登录，强制进行静默登录获取 Token，保证后端 Mongoose 能够正确存库
@@ -358,6 +443,11 @@ const sendMessage = async () => {
   try { await waitForSession() }
   catch (error) { if (current()) { loading.value = false; uni.showToast({ title: error.message, icon: 'none' }) }; return }
   if (!current()) return
+  requestOwner = verifiedOwner()
+  if (!requestOwner) { loading.value = false; return }
+  loadHistory()
+  const requestHistory = history
+  const requestMode = chatMode.value
 
   const userQuery = inputMsg.value.trim()
   if (!userQuery) { loading.value = false; return }
@@ -377,6 +467,7 @@ const sendMessage = async () => {
     content: userQuery,
     avatar: gender.value === 'female' ? '👩' : '👨'
   })
+  scheduleHistory()
   
   loading.value = true
   loadingText.value = chatMode.value === 'private' ? '大师正在推演天机...' : '三位大师正在展开研讨...'
@@ -393,7 +484,7 @@ const sendMessage = async () => {
     .filter(m => m.content)
   while (apiHistory.reduce((total, m) => total + m.content.length, 0) > 20000) apiHistory.shift()
 
-  const requestUrl = chatMode.value === 'private' 
+  const requestUrl = requestMode === 'private'
     ? `${BASE_URL}/api/fortune/ai-chat` 
     : `${BASE_URL}/api/fortune/council`
 
@@ -417,10 +508,14 @@ const sendMessage = async () => {
   let failedToken = ''
   let authRetried = false
   const recoverAndRetry = async (resend) => {
-    if (!current() || authRetried) { if (current()) loading.value = false; return }
-    authRetried = true
-    const recovered = await recoverSession(sessionVersion, failedToken)
     if (!current()) return
+    // 先废弃旧attempt，再await共享恢复；恢复刚开始的晚到分片也不能写入气泡。
+    attemptVersion++
+    if (authRetried) { loading.value = false; finishHistory(true); return }
+    authRetried = true
+    finishHistory(true)
+    const recovered = await recoverSession(sessionVersion, failedToken)
+    if (!current() || requestOwner !== verifiedOwner() || history !== requestHistory) return
     if (!recovered) { loading.value = false; return }
     // complete 回调会把 loading 关掉，所以要在恢复成功、准备重发时重新点亮
     loading.value = true
@@ -436,7 +531,7 @@ const sendMessage = async () => {
   const sendStable = () => {
     if (!current()) return
     const attempt = ++attemptVersion
-    const active = () => current() && attempt === attemptVersion
+    const active = () => current() && requestOwner === verifiedOwner() && history === requestHistory && attempt === attemptVersion
     failedToken = uni.getStorageSync('user_token') || ''
     activeTask = uni.request({
       url: requestUrl,
@@ -481,6 +576,7 @@ const sendMessage = async () => {
             })
           }
           scrollToBottom()
+          flushHistory(requestHistory)
         } else {
           uni.showModal({
             title: '推演天机失败',
@@ -501,6 +597,7 @@ const sendMessage = async () => {
       },
       complete: () => {
         if (!active()) return
+        flushHistory(requestHistory)
         scrollToBottom()
       }
     })
@@ -516,7 +613,7 @@ const sendMessage = async () => {
   const sendStream = () => {
     if (!current()) return
     const attempt = ++attemptVersion
-    const active = () => current() && attempt === attemptVersion
+    const active = () => current() && requestOwner === verifiedOwner() && history === requestHistory && attempt === attemptVersion
     failedToken = uni.getStorageSync('user_token') || ''
     // 每次重发都要重置分片状态，否则重试会拼上一次的残包
     let activeAgentMsg = null
@@ -524,6 +621,50 @@ const sendMessage = async () => {
     const decoder = new Utf8Decoder()
     let leftover = ''
     let receivedAnyChunk = false
+
+    // 分片和整包兜底共用消息展示/结束状态，圆桌的姓名与头像也会保存。
+    const processStreamLine = (line) => {
+      if (!line.trim().startsWith('data: ')) return
+      const dataVal = line.replace('data: ', '').trim()
+      if (dataVal === '[DONE]') {
+        activeAgentMsg = null
+        finishHistory()
+        return
+      }
+      let parsed
+      try { parsed = JSON.parse(dataVal) } catch (error) { return }
+      if (parsed.error) {
+        finishHistory(true)
+        uni.showToast({ title: '推演暂时无法完成，请稍后重试', icon: 'none' })
+      } else if (parsed.agent) {
+        if (parsed.event === 'start') {
+          activeAgentMsg = { role: 'assistant', agentName: parsed.agent, content: '', avatar: getAgentAvatar(parsed.agent), status: 'streaming' }
+          messages.value.push(activeAgentMsg)
+          activeAgentMsg = messages.value[messages.value.length - 1]
+        } else if (parsed.event === 'end') {
+          if (activeAgentMsg) delete activeAgentMsg.status
+          activeAgentMsg = null
+          flushHistory(requestHistory)
+        } else if (parsed.content) {
+          if (activeAgentMsg) activeAgentMsg.content += parsed.content
+          else {
+            activeAgentMsg = { role: 'assistant', agentName: parsed.agent, content: parsed.content, avatar: getAgentAvatar(parsed.agent), status: 'streaming' }
+            messages.value.push(activeAgentMsg)
+            activeAgentMsg = messages.value[messages.value.length - 1]
+          }
+        }
+      } else if (parsed.content) {
+        if (isFirstChunk) {
+          messages.value.push({ role: 'assistant', content: parsed.content, avatar: '🔮', status: 'streaming' })
+          isFirstChunk = false
+        } else {
+          const lastMsg = messages.value[messages.value.length - 1]
+          if (lastMsg?.role === 'assistant') lastMsg.content += parsed.content
+        }
+      }
+      scheduleHistory()
+      scrollToBottom()
+    }
 
     const requestTask = wx.request({
       url: requestUrl,
@@ -565,41 +706,10 @@ const sendMessage = async () => {
             }
 
             if (fullText) {
-              const lines = fullText.split('\n')
-              let compiledContent = ''
-
-              for (const line of lines) {
-                if (line.trim().startsWith('data: ')) {
-                  const dataVal = line.replace('data: ', '').trim()
-                  if (dataVal === '[DONE]') continue
-                  try {
-                    const parsed = JSON.parse(dataVal)
-                    if (parsed.error) {
-                      uni.showToast({ title: '推演暂时无法完成，请稍后重试', icon: 'none' })
-                    } else if (parsed.agent) {
-                      if (parsed.content) {
-                        compiledContent += parsed.content
-                      }
-                    } else if (parsed.content) {
-                      compiledContent += parsed.content
-                    }
-                  } catch (e) {
-                    // 忽略截断
-                  }
-                }
-              }
-
-              if (compiledContent) {
-                messages.value.push({
-                  role: 'assistant',
-                  content: compiledContent,
-                  avatar: chatMode.value === 'private' ? '🔮' : '🐉'
-                })
-                scrollToBottom()
-              }
+              for (const line of fullText.split('\n')) processStreamLine(line)
             }
           }
-          } else {
+        } else {
           let errBody = ''
           try {
             const uint8 = new Uint8Array(res.data)
@@ -614,11 +724,14 @@ const sendMessage = async () => {
             showCancel: false
           })
         }
+        finishHistory(true)
       },
       fail: (err) => {
         if (!active()) return
         console.error('Native SSE Stream Request Failed:', err)
         loading.value = false
+        activeTask = null
+        finishHistory(true)
         uni.showModal({
           title: '推演天机失败',
           content: `请检查网络是否畅通或接口是否开启。\n错误原因: ${err.errMsg || JSON.stringify(err)}`,
@@ -627,6 +740,7 @@ const sendMessage = async () => {
       },
       complete: () => {
         if (!active()) return
+        flushHistory(requestHistory)
         scrollToBottom()
       }
     })
@@ -658,65 +772,7 @@ const sendMessage = async () => {
         lines.pop()
       }
 
-      for (const line of lines) {
-        if (line.trim().startsWith('data: ')) {
-          const dataVal = line.replace('data: ', '').trim()
-          if (dataVal === '[DONE]') {
-            activeAgentMsg = null
-            break
-          }
-          try {
-            const parsed = JSON.parse(dataVal)
-
-            if (parsed.error) {
-              uni.showToast({ title: '推演暂时无法完成，请稍后重试', icon: 'none' })
-            } else if (parsed.agent) {
-              // --- 多智能体圆桌会谈流模式 ---
-              if (parsed.event === 'start') {
-                activeAgentMsg = {
-                  role: 'assistant',
-                  agentName: parsed.agent,
-                  content: '',
-                  avatar: getAgentAvatar(parsed.agent)
-                }
-                messages.value.push(activeAgentMsg)
-              } else if (parsed.event === 'end') {
-                activeAgentMsg = null
-              } else if (parsed.content) {
-                if (activeAgentMsg) {
-                  activeAgentMsg.content += parsed.content
-                } else {
-                  activeAgentMsg = {
-                    role: 'assistant',
-                    agentName: parsed.agent,
-                    content: parsed.content,
-                    avatar: getAgentAvatar(parsed.agent)
-                  }
-                  messages.value.push(activeAgentMsg)
-                }
-              }
-            } else if (parsed.content) {
-              // --- 1对1私聊模式 ---
-              if (isFirstChunk) {
-                messages.value.push({
-                  role: 'assistant',
-                  content: parsed.content,
-                  avatar: '🔮'
-                })
-                isFirstChunk = false
-              } else {
-                const lastMsg = messages.value[messages.value.length - 1]
-                if (lastMsg && lastMsg.role === 'assistant') {
-                  lastMsg.content += parsed.content
-                }
-              }
-            }
-            scrollToBottom()
-          } catch (e) {
-            // JSON 截断忽略，等待下个 chunk 拼全
-          }
-        }
-      }
+      for (const line of lines) processStreamLine(line)
     })
   }
 
