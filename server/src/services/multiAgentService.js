@@ -159,16 +159,16 @@ class MultiAgentService {
 
         // --- 智能体 3: 德叔 (心理咨询) ---
         const systemPrompt3 = `你是一位极具同理心且接地气的现代心理咨询师——德叔。你说话幽默务实，不喜欢神棍那一套，专注于帮助用户解决实际心理焦虑和生活困境。
-请针对用户的提问，从心理疏导和行为学方法（如CBT）给出实用、可执行的具体行动指导。`;
+请针对用户的提问，从心理疏导和行为学方法（如CBT）给出实用、可执行的具体行动指导。${birthInfo?.birthTime === '未知' ? `\n${baziString}` : ''}`;
 
         await self.runAgentOpinionStream(client, systemPrompt3, `用户求测: "${userQuestion}"`, '德叔 (心理学咨询)', stream, trace, signal);
 
         // --- 智能体 4: 编译主笔智能体 ---
-        const systemPrompt4 = `你是一位大宗师级别的命运汇总结编师。你需要综合妙空大师（东方）、塞蕾娜（西方）和德叔（心理学）三人的意见，去除冗余，合并出一部排盘严整、对用户极具指导意义的“命运综合分析报告”。
+        const systemPrompt4 = `你是一位大宗师级别的命运汇总结编师。你需要综合妙空大师（东方）、塞蕾娜（西方）和德叔（心理学）三人的意见，去除冗余，合并出一部${birthInfo?.birthTime === '未知' ? '' : '排盘严整、'}对用户极具指导意义的“命运综合分析报告”。
 报告必须以 Markdown 排版，且必须包含以下板块：
 1. 🌟【中西命运融合点评】
 2. ⚠️【核心红线与避坑警示】
-3. 📝【未来三个月具体执行行动清单】`;
+3. 📝【未来三个月具体执行行动清单】${birthInfo?.birthTime === '未知' ? `\n${baziString}` : ''}`;
 
         const userMessage4 = `用户问题: "${userQuestion}"\n请总结前面三位专家的会谈精髓，生成终极报告。`;
         await self.runAgentOpinionStream(client, systemPrompt4, userMessage4, '命运综合分析报告', stream, trace, signal);
@@ -279,16 +279,16 @@ class MultiAgentService {
 
     // 德叔
     const systemPrompt3 = `你是一位极具同理心且接地气的现代心理咨询师——德叔。你说话幽默务实，不喜欢神棍那一套，专注于帮助用户解决实际心理焦虑和生活困境。
-请针对用户的提问，从心理疏导和行为学方法（如CBT）给出实用、可执行的具体行动指导。`;
+请针对用户的提问，从心理疏导和行为学方法（如CBT）给出实用、可执行的具体行动指导。${birthInfo?.birthTime === '未知' ? `\n${baziString}` : ''}`;
     const opinion3 = await this.runAgentOpinionNonStream(client, systemPrompt3, `用户求测: "${userQuestion}"`, '德叔 (心理学咨询)', trace, signal);
     opinions.push({ agent: '德叔 (心理学咨询)', content: opinion3 });
 
     // 命运综合分析报告
-    const systemPrompt4 = `你是一位大宗师级别的命运汇总结编师。你需要综合妙空大师（东方）、塞蕾娜（西方）和德叔（心理学）三人的意见，去除冗余，合并出一部排盘严整、对用户极具指导意义的“命运综合分析报告”。
+    const systemPrompt4 = `你是一位大宗师级别的命运汇总结编师。你需要综合妙空大师（东方）、塞蕾娜（西方）和德叔（心理学）三人的意见，去除冗余，合并出一部${birthInfo?.birthTime === '未知' ? '' : '排盘严整、'}对用户极具指导意义的“命运综合分析报告”。
 报告必须以 Markdown 排版，且必须包含以下板块：
 1. 🌟【中西命运融合点评】
 2. ⚠️【核心红线与避坑警示】
-3. 📝【未来三个月具体执行行动清单】`;
+3. 📝【未来三个月具体执行行动清单】${birthInfo?.birthTime === '未知' ? `\n${baziString}` : ''}`;
     const userMessage4 = `用户问题: "${userQuestion}"\n请总结前面三位专家的会谈精髓，生成终极报告。`;
     const opinion4 = await this.runAgentOpinionNonStream(client, systemPrompt4, userMessage4, '命运综合分析报告', trace, signal);
     opinions.push({ agent: '命运综合分析报告', content: opinion4 });

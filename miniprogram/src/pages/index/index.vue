@@ -211,7 +211,7 @@ import { useThemeStore } from '@/store/theme'
 import { usePushStore } from '@/store/push'
 import { useUserStore } from '@/store/user'
 import { getDailyFortuneApi } from '@/api/fortune'
-import { updateBirthInfoApi, checkInApi, bindPhoneApi } from '@/api/user'
+import { checkInApi, bindPhoneApi } from '@/api/user'
 import { getPetStatusApi } from '@/api/pet'
 import ThemeSwitcher from '@/components/theme-switcher/ThemeSwitcher.vue'
 import PrivacyPopup from '@/components/PrivacyPopup.vue'
@@ -803,7 +803,7 @@ const saveBirthInfo = async () => {
     }
 
     // 更新生日密码
-    const res = await updateBirthInfoApi({
+    const res = await userStore.updateBirthInfo({
       solarDate: tempBirthDate.value,
       birthTime: tempSelectedTime.value.value,
       gender: tempGender.value

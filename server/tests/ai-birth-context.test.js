@@ -128,6 +128,14 @@ for (const mode of ['private', 'council']) for (const stream of [false, true]) f
     } else await direct(mode, stream, body);
     expect(requests).toHaveLength(mode === 'private' ? 2 : 4);
     expect(requests[0].messages[0].content).toContain('时辰未知');
+    if (mode === 'council') expect(JSON.stringify(requests.at(-1).messages)).toContain('时辰未知');
+    if (mode === 'council') for (const request of requests) {
+      const context = JSON.stringify(request.messages);
+      expect(context).toContain('1984-02-02');
+      expect(context).toContain('时辰未知');
+      expect(context).toContain('不要推测时辰或四柱');
+      expect(context).not.toContain('排盘严整');
+    }
     expect(JSON.stringify(requests)).not.toContain('癸亥');
     expect(JSON.stringify(requests)).not.toContain('x'.repeat(100000));
     expect(langfuse.trace.mock.calls[0][0].metadata.birthInfo).toEqual({

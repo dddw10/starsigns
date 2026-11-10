@@ -230,16 +230,15 @@ export const useUserStore = defineStore('user', () => {
 
   async function restoreBirthInfoFromCache(version) {
     try {
+      const revision = profileMutationVersion
       if (userInfo.value?.birthInfo?.solarDate) return
       const raw = uni.getStorageSync('user_birth_backup')
       const cached = typeof raw === 'string' && raw ? JSON.parse(raw) : raw
       if (!cached?.solarDate || !cached.birthTime) return
       const res = await updateBirthInfoApi({ solarDate: cached.solarDate, birthTime: cached.birthTime }, { skipSessionGate: true, skipAutoRecovery: true, timeout: 10000 })
-      if (version !== sessionVersion.value || !isLoggedIn.value) return
+      if (version !== sessionVersion.value || !isLoggedIn.value || revision !== profileMutationVersion) return
       if (res.code === 0 && res.data) {
-        userInfo.value = { ...userInfo.value, birthInfo: res.data }
-        profileMutationVersion++
-        uni.setStorageSync('user_info', JSON.stringify(userInfo.value))
+        applyBirthInfo(res.data)
       }
     } catch (error) { console.warn('回填生辰失败:', error.message) }
   }
@@ -249,6 +248,21 @@ export const useUserStore = defineStore('user', () => {
       try { uni.setStorageSync('user_birth_backup', JSON.stringify({ solarDate: info.solarDate, birthTime: info.birthTime })) }
       catch (error) { console.warn('备份生辰失败:', error.message) }
     }
+  }
+
+  function applyBirthInfo(info) {
+    userInfo.value = { ...userInfo.value, birthInfo: info }
+    profileMutationVersion++
+    uni.setStorageSync('user_info', JSON.stringify(userInfo.value))
+    backupBirthInfo(info)
+  }
+
+  async function updateBirthInfo(data) {
+    const version = sessionVersion.value
+    const res = await updateBirthInfoApi(data)
+    if (version !== sessionVersion.value || !isLoggedIn.value) throw new Error('账号已切换')
+    if (res.code === 0 && res.data) applyBirthInfo(res.data)
+    return res
   }
 
   async function updateUserInfo(data) {
@@ -306,7 +320,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo, token, isLoggedIn, sessionStatus, sessionVersion, sessionError,
     auditMode, systemConfigLoaded, systemConfigStatus, initFromStorage,
     restoreSession, restoreWechatSession: restoreSession, login, logout,
-    updateUserInfo, fetchUserInfo, checkLoginStatus: fetchUserInfo, updateTheme,
+    updateUserInfo, updateBirthInfo, fetchUserInfo, checkLoginStatus: fetchUserInfo, updateTheme,
     loginAccount, registerAccount, fetchSystemConfig, ensureSystemConfig
   }
 })

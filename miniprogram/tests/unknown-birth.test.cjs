@@ -7,6 +7,7 @@ const { parse, compileScript } = require('@vue/compiler-sfc')
 const { runtime } = require('./runtime.cjs')
 const birthInfo = { solarDate: '1984-02-02', lunarDate: '1984-1-1', birthTime: '未知' }
 const profile = { _id: 'user', gender: 1, birthInfo }
+const knownBirth = { ...birthInfo, birthTime: '卯时', yearGanZhi: '癸亥', monthGanZhi: '乙丑', dayGanZhi: '丙寅', hourGanZhi: '辛卯' }
 const response = info => ({ code: 0, data: { token: 'token', userInfo: info } })
 async function login(r, info = { _id: 'user' }) {
   const pending = r.store.login(); await r.flush()
@@ -23,6 +24,102 @@ function renderedText(home) {
 }
 
 for (const platform of ['H5', 'MP-WEIXIN']) {
+  test(`${platform}: confirmed unknown save survives optional profile failure in memory, cache, backup and chat`, async () => {
+    const r = await runtime({ platform })
+    await login(r, { ...profile, birthInfo: knownBirth })
+    const home = await r.evaluate('./pages/index/index.vue', bindings)
+    home.openBirthDrawer(); home.onTempTimeChange({ detail: { value: 0 } })
+    const saving = home.saveBirthInfo(); await r.flush()
+    r.respond(r.requests.find(item => /birth-info$/.test(item.url)), { code: 0, data: birthInfo }); await r.flush()
+    r.requests.find(item => /profile$/.test(item.url)).fail({ errMsg: 'optional refresh lost' }); await r.flush()
+    r.respond(r.requests.find(item => /daily$/.test(item.url)), { code: 0, data: { score: 70, level: 'normal', yi: [], ji: [] } })
+    await saving; await r.flush()
+    assert.deepEqual(JSON.parse(JSON.stringify(r.store.userInfo.birthInfo)), birthInfo)
+    assert.deepEqual(JSON.parse(r.storage.get('user_info')).birthInfo, birthInfo)
+    assert.deepEqual(JSON.parse(r.storage.get('user_birth_backup')), { solarDate: '1984-02-02', birthTime: '未知' })
+    assert.match(renderedText(home), /时辰未知，未生成完整排盘/)
+    assert.doesNotMatch(renderedText(home), /专属灵感 \(/)
+    const chat = await r.evaluate('./pages/chat/index.vue', ['birthInfo', 'sendMessage', 'inputMsg'])
+    assert.equal(chat.birthInfo.birthTime, '未知')
+    chat.inputMsg.value = '请给我建议'; await chat.sendMessage(); await r.flush()
+    assert.equal(r.requests.find(item => /ai-chat$/.test(item.url)).data.birthInfo.birthTime, '未知')
+  })
+
+  test(`${platform}: a confirmed birth save survives an older profile read while preserving a newer nickname`, async () => {
+    const r = await runtime({ platform })
+    const oldProfile = { ...profile, nickname: 'old', birthInfo: knownBirth }
+    await login(r, oldProfile)
+    const home = await r.evaluate('./pages/index/index.vue', bindings)
+    const read = r.store.fetchUserInfo(); await r.flush()
+    const oldRead = r.requests.find(item => /profile$/.test(item.url))
+    home.openBirthDrawer(); home.onTempTimeChange({ detail: { value: 0 } })
+    const saving = home.saveBirthInfo(); await r.flush()
+    const rename = r.store.updateUserInfo({ nickname: 'new nickname' }); await r.flush()
+    r.respond(r.requests.find(item => /profile$/.test(item.url) && item.method === 'PUT'), { code: 0 }); await rename
+    r.respond(r.requests.find(item => /birth-info$/.test(item.url)), { code: 0, data: birthInfo }); await r.flush()
+    r.respond(oldRead, { code: 0, data: oldProfile }); await read; await r.flush()
+    r.requests.filter(item => /profile$/.test(item.url) && item.method === 'GET').at(-1).fail({ errMsg: 'optional refresh lost' }); await r.flush()
+    r.respond(r.requests.find(item => /daily$/.test(item.url)), { code: 0, data: { score: 70, yi: [], ji: [] } })
+    await saving; await r.flush()
+    assert.equal(r.store.userInfo.nickname, 'new nickname')
+    assert.equal(r.store.userInfo.birthInfo.birthTime, '未知')
+    assert.equal(JSON.parse(r.storage.get('user_info')).birthInfo.birthTime, '未知')
+    assert.equal(JSON.parse(r.storage.get('user_birth_backup')).birthTime, '未知')
+  })
+
+  test(`${platform}: a late birth save from the previous account cannot change the new account or launch its refresh`, async () => {
+    const r = await runtime({ platform })
+    await login(r, { ...profile, birthInfo: knownBirth })
+    const home = await r.evaluate('./pages/index/index.vue', bindings)
+    home.openBirthDrawer(); home.onTempTimeChange({ detail: { value: 0 } })
+    const saving = home.saveBirthInfo(); await r.flush()
+    const oldWrite = r.requests.find(item => /birth-info$/.test(item.url))
+    const switching = r.store.loginAccount('new', 'password'); await r.flush()
+    const nextProfile = { _id: 'new', birthInfo: { solarDate: '2000-01-01', birthTime: '午时' } }
+    r.respond(r.requests.find(item => /login-account$/.test(item.url)), response(nextProfile)); await switching; await r.flush()
+    const before = JSON.stringify([...r.storage])
+    const profileReads = r.requests.filter(item => /profile$/.test(item.url)).length
+    r.respond(oldWrite, { code: 0, data: birthInfo }); await r.flush()
+    assert.equal(r.requests.filter(item => /profile$/.test(item.url)).length, profileReads)
+    await saving
+    assert.equal(r.store.userInfo._id, 'new')
+    assert.equal(JSON.stringify([...r.storage]), before)
+  })
+
+  test(`${platform}: late automatic birth backfill cannot replace the newer confirmed manual save`, async () => {
+    const r = await runtime({ platform, stored: { user_birth_backup: JSON.stringify(knownBirth) } })
+    await login(r)
+    const refill = r.requests.find(item => /birth-info$/.test(item.url))
+    const home = await r.evaluate('./pages/index/index.vue', bindings)
+    home.openBirthDrawer(); home.onTempDateChange({ detail: { value: '1984-02-02' } }); home.onTempTimeChange({ detail: { value: 0 } })
+    const saving = home.saveBirthInfo(); await r.flush()
+    r.respond(r.requests.filter(item => /birth-info$/.test(item.url)).at(-1), { code: 0, data: birthInfo }); await r.flush()
+    r.respond(refill, { code: 0, data: knownBirth }); await r.flush()
+    r.requests.find(item => /profile$/.test(item.url)).fail({ errMsg: 'optional refresh lost' }); await r.flush()
+    r.respond(r.requests.find(item => /daily$/.test(item.url)), { code: 0, data: { score: 70, yi: [], ji: [] } })
+    await saving; await r.flush()
+    assert.equal(r.store.userInfo.birthInfo.birthTime, '未知')
+    assert.equal(JSON.parse(r.storage.get('user_birth_backup')).birthTime, '未知')
+  })
+
+  test(`${platform}: changing account after a save response resolves still blocks its pending continuation`, async () => {
+    const r = await runtime({ platform })
+    await login(r, { ...profile, birthInfo: knownBirth })
+    const home = await r.evaluate('./pages/index/index.vue', bindings)
+    home.openBirthDrawer(); home.onTempTimeChange({ detail: { value: 0 } })
+    const saving = home.saveBirthInfo(); await r.flush()
+    r.respond(r.requests.find(item => /birth-info$/.test(item.url)), { code: 0, data: birthInfo })
+    // Invalidate immediately, before the already-resolved save reaches the store's await continuation.
+    const switching = r.store.loginAccount('new', 'password'); await r.flush()
+    const nextProfile = { _id: 'new', birthInfo: { solarDate: '2000-01-01', birthTime: '午时' } }
+    r.respond(r.requests.find(item => /login-account$/.test(item.url)), response(nextProfile))
+    await switching; await saving; await r.flush()
+    assert.equal(r.requests.filter(item => /profile$/.test(item.url)).length, 0)
+    assert.equal(r.store.userInfo._id, 'new')
+    assert.equal(r.store.userInfo.birthInfo.birthTime, '午时')
+    assert.equal(JSON.parse(r.storage.get('user_birth_backup')).birthTime, '午时')
+  })
+
   test(`${platform}: home saves unknown, shows no full chart, and restores its exact state from profile/cache`, async () => {
     const r = await runtime({ platform })
     await login(r)
