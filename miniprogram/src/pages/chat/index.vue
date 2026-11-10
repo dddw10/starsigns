@@ -247,6 +247,7 @@ class Utf8Decoder {
 
 let requestVersion = 0
 let activeTask = null
+let chatRecoveryOperation = null
 let history = null
 let historyVisible = false
 let historyTimer = null
@@ -288,6 +289,7 @@ const cancelRequest = () => {
   requestVersion++
   const previous = activeTask
   activeTask = null
+  chatRecoveryOperation = null
   loading.value = false
   finishHistory(true)
   previous?.abort?.()
@@ -331,7 +333,7 @@ const loadHistory = () => {
   historyVisible = true
 }
 
-// restoring 只隐藏展示：同账号的401请求可以继续；缓存拥有者始终保留原快照。
+// 外部恢复取消当前聊天；聊天自身401等待恢复后重试，缓存拥有者保留原快照。
 watch(() => [userStore.sessionVersion, userStore.sessionStatus, userStore.isLoggedIn, stableUserId()], () => {
   if (!pageActive) return
   const owner = verifiedOwner()
@@ -345,6 +347,7 @@ watch(() => [userStore.sessionVersion, userStore.sessionStatus, userStore.isLogg
     if (versionChanged) return
   }
   if (!owner) {
+    if (userStore.sessionStatus === 'restoring' && activeTask && chatRecoveryOperation !== requestVersion) cancelRequest()
     if (historyVisible) {
       history.entries = messages.value
       flushHistory()
@@ -514,7 +517,10 @@ const sendMessage = async () => {
     if (authRetried) { loading.value = false; finishHistory(true); return }
     authRetried = true
     finishHistory(true)
-    const recovered = await recoverSession(sessionVersion, failedToken)
+    chatRecoveryOperation = operation
+    let recovered
+    try { recovered = await recoverSession(sessionVersion, failedToken) }
+    finally { if (chatRecoveryOperation === operation) chatRecoveryOperation = null }
     if (!current() || requestOwner !== verifiedOwner() || history !== requestHistory) return
     if (!recovered) { loading.value = false; return }
     // complete 回调会把 loading 关掉，所以要在恢复成功、准备重发时重新点亮

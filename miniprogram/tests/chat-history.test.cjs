@@ -310,3 +310,53 @@ test('MP-WEIXIN: council partial text and stopped state notify the visible Vue m
   assert.equal(observed, '实时可见的部分:stopped')
   stop()
 })
+
+for (const platform of ['H5', 'MP-WEIXIN']) {
+  for (const mode of ['private', 'council']) {
+    for (const outcome of ['complete', 'fail']) {
+      test(`${platform} ${mode}: external profile 401 cancels the chat safely before its late ${outcome}`, async () => {
+        const { r, chat } = await setup(platform); chat.switchMode(mode)
+        finish(r, await send(r, chat, '先前问题'), platform, mode, '先前已完成答案'); await r.flush()
+        const sent = await send(r, chat, '恢复前正在推演的问题')
+        if (platform === 'MP-WEIXIN') chunk(sent, mode === 'private' ? { content: '恢复前已收到部分' } : { agent: '妙空大师', content: '恢复前已收到部分' })
+        chat.inputMsg.value = '恢复后的继续问题'
+
+        // App.onShow uses this actual store alias; the profile request owns the 401.
+        const profile = r.store.checkLoginStatus(); await r.flush()
+        const originalProfile = r.requests.at(-1)
+        assert.match(originalProfile.url, /profile$/)
+        r.respond(originalProfile, {}, 401); await r.flush()
+        assert.equal(r.store.sessionStatus, 'restoring')
+        const recovery = r.requests.at(-1)
+        assert.match(recovery.url, /login$/)
+        assert.equal(chat.loading.value, false, 'external authentication must finish the interrupted chat lifecycle')
+        assert.equal(sent.task.aborted, true)
+        assert.equal(chat.inputMsg.value, '恢复后的继续问题')
+        assert.equal(chat.messages.value.some(item => /先前已完成|恢复前/.test(item.content)), false)
+
+        if (outcome === 'complete') finish(r, sent, platform, mode, '认证期间晚到回复')
+        else { sent.fail({ errMsg: 'late network failure' }); sent.complete() }
+        const saved = JSON.parse(r.storage.get(historyKey('alice', mode)))
+        assert.ok(saved.messages.some(item => item.content === '先前已完成答案'))
+        assert.equal(saved.messages.some(item => item.content.includes('认证期间晚到回复')), false)
+        if (platform === 'MP-WEIXIN') assert.equal(saved.messages.find(item => item.content === '恢复前已收到部分')?.status, 'stopped')
+
+        r.respond(recovery, { code: 0, data: { token: 'fresh-alice', userInfo: { _id: 'alice' } } }); await r.flush()
+        const retriedProfile = r.requests.at(-1)
+        assert.match(retriedProfile.url, /profile$/)
+        r.respond(retriedProfile, { code: 0, data: { _id: 'alice' } }); await profile; await r.flush()
+        assert.equal(r.store.isLoggedIn, true)
+        assert.equal(chat.loading.value, false)
+        assert.ok(chat.messages.value.some(item => item.content === '先前已完成答案'))
+        if (platform === 'MP-WEIXIN') assert.equal(chat.messages.value.find(item => item.content === '恢复前已收到部分')?.status, 'stopped')
+        assert.equal(chat.messages.value.some(item => item.content.includes('认证期间晚到回复')), false)
+        assert.equal(r.notifications.length, 0)
+        const before = chatRequests(r).length
+        await chat.sendMessage(); await r.flush()
+        assert.equal(chatRequests(r).length, before + 1)
+        assert.equal(chatRequests(r).at(-1).data.messages.at(-1).content, '恢复后的继续问题')
+        finish(r, chatRequests(r).at(-1), platform, mode, '继续问题的答案'); await r.flush(); unload(r)
+      })
+    }
+  }
+}
