@@ -3,6 +3,8 @@ const { isAdminUser } = require('../config/admin');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_ISSUER = process.env.JWT_ISSUER || 'fortune-miniprogram';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'fortune-client';
 
 // 占位符一律拒绝启动：曾经 `your_jwt_secret_key_here` 靠多一个后缀绕过了这道检查
 const JWT_SECRET_PLACEHOLDERS = [
@@ -18,12 +20,26 @@ if (!JWT_SECRET || JWT_SECRET_PLACEHOLDERS.includes(JWT_SECRET.trim().toLowerCas
 
 // 生成 JWT token
 function generateToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, algorithm: 'HS256',
+    issuer: JWT_ISSUER, audience: JWT_AUDIENCE });
 }
 
 // 验证 JWT token
 function verifyToken(token) {
-  return jwt.verify(token, JWT_SECRET);
+  const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  if (!decoded || typeof decoded.userId !== 'string' || !decoded.userId || !Number.isFinite(decoded.exp)) {
+    throw new jwt.JsonWebTokenError('Invalid identity claims');
+  }
+  if (decoded.iss !== undefined || decoded.aud !== undefined) {
+    return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'], issuer: JWT_ISSUER, audience: JWT_AUDIENCE });
+  }
+  const cutoff = process.env.JWT_LEGACY_ACCEPT_UNTIL || '';
+  const cutoffTime = Date.parse(cutoff);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(cutoff) || !(cutoffTime > Date.now())
+    || new Date(cutoffTime).toISOString() !== (cutoff.includes('.') ? cutoff : cutoff.replace('Z', '.000Z'))) {
+    throw new jwt.JsonWebTokenError('Legacy token transition ended');
+  }
+  return decoded;
 }
 
 // 鉴权中间件

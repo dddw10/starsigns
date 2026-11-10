@@ -150,6 +150,7 @@ import { useUserStore } from '@/store/user'
 import { useThemeStore } from '@/store/theme'
 import { onUnload } from '@dcloudio/uni-app'
 import { BASE_URL, recoverSession, waitForSession, getSessionVersion, isSessionCurrent } from '@/api/request'
+import { formatMarkdown } from '@/utils/markdown'
 import { useAuditGuard } from '@/utils/auditGuard'
 
 const userStore = useUserStore()
@@ -320,17 +321,6 @@ const getAgentAvatar = (agentName) => {
   return '📜'
 }
 
-// 模拟简易 Markdown 转 HTML
-const formatMarkdown = (text) => {
-  if (!text) return ''
-  let html = text
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br/>')
-    .replace(/^- (.*?)/gm, '<li>$1</li>')
-    .replace(/### (.*?)/g, '<h4>$1</h4>')
-    .replace(/## (.*?)/g, '<h3>$1</h3>')
-  return html
-}
 
 const scrollToBottom = () => {
   nextTick(() => {

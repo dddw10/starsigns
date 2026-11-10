@@ -1,6 +1,7 @@
 const { OpenAI } = require('openai');
 const fortuneService = require('./fortuneService');
 const langfuse = require('../config/langfuse');
+const { validateAIInput, validateToolArguments } = require('../utils/aiInput');
 
 class AIService {
   constructor() {
@@ -34,6 +35,7 @@ class AIService {
    */
   async chat({ messages, birthInfo, gender, userId, stream = true, signal }) {
     signal?.throwIfAborted();
+    validateAIInput({ messages, birthInfo, gender, stream });
     const client = this.getClient();
 
     // 创建 Langfuse 追踪
@@ -82,8 +84,8 @@ class AIService {
             properties: {
               spreadType: {
                 type: 'string',
-                enum: ['loveMatch', 'threeCards', 'single'],
-                description: '牌阵类型: single (单牌占卜), threeCards (三牌占卜: 过去/现在/未来), loveMatch (感情配对)',
+                enum: ['relationship', 'three', 'single'],
+                description: '牌阵类型: single (单牌占卜), three (三牌占卜: 过去/现在/未来), relationship (感情配对)',
               },
             },
             required: ['spreadType'],
@@ -148,21 +150,24 @@ class AIService {
         for (const toolCall of responseMessage.tool_calls) {
           signal?.throwIfAborted();
           const functionName = toolCall.function.name;
-          const functionArgs = JSON.parse(toolCall.function.arguments);
+          let functionArgs;
           let functionResult = '';
 
           // 追踪工具执行
           const toolSpan = trace ? trace.span({
             name: `tool-call-${functionName}`,
-            input: functionArgs,
+            input: toolCall.function.arguments,
           }) : null;
 
           try {
+            functionArgs = JSON.parse(toolCall.function.arguments);
+            validateToolArguments(functionName, functionArgs);
             if (functionName === 'analyze_bazi') {
               const res = await fortuneService.baziAnalysis(userId || 'guest_user', {
                 solarDate: functionArgs.solarDate,
                 birthTime: functionArgs.birthTime,
                 gender: functionArgs.gender,
+                calendar: functionArgs.calendar,
               });
               functionResult = JSON.stringify(res);
             } else if (functionName === 'analyze_tarot') {
@@ -173,7 +178,7 @@ class AIService {
             }
           } catch (err) {
             console.error(`Tool execution error [${functionName}]:`, err.message);
-            functionResult = JSON.stringify({ error: err.message });
+            functionResult = JSON.stringify({ error: '工具参数或执行无效，请检查后重试' });
           }
 
           if (toolSpan) {

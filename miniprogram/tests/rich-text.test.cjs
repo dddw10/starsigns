@@ -1,0 +1,13 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const { runtime } = require('./runtime.cjs')
+test('chat renders untrusted HTML and URI as text while preserving limited Markdown', async () => {
+  const r = await runtime()
+  const chat = await r.evaluate('./pages/chat/index.vue', ['formatMarkdown'])
+  const html = chat.formatMarkdown('<img src="https://evil.test/tracker" style="background:url(javascript:evil)" onerror="evil()"><script>evil()</script>\n**safe**\n## title')
+  assert.equal(/<(img|script|iframe|style|a)\b/i.test(html), false)
+  assert.ok(html.includes('&lt;img'))
+  assert.ok(html.includes('<strong>safe</strong>'))
+  assert.ok(html.includes('<h3>title</h3>'))
+  assert.ok(chat.formatMarkdown('&#60;img src=x&#62;').includes('&amp;#60;'))
+})

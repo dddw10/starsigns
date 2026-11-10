@@ -1,6 +1,7 @@
 const { Readable } = require('stream');
 const { OpenAI } = require('openai');
 const langfuse = require('../config/langfuse');
+const { validateAIInput } = require('../utils/aiInput');
 
 class MultiAgentService {
   constructor() {
@@ -116,6 +117,7 @@ class MultiAgentService {
    */
   councilStream({ messages, birthInfo, gender, userId, signal }) {
     signal?.throwIfAborted();
+    validateAIInput({ messages, birthInfo, gender });
     const client = this.getClient();
     const userQuestion = messages[messages.length - 1].content;
     
@@ -245,6 +247,7 @@ class MultiAgentService {
    */
   async councilNonStream({ messages, birthInfo, gender, userId, signal }) {
     signal?.throwIfAborted();
+    validateAIInput({ messages, birthInfo, gender });
     const client = this.getClient();
     const userQuestion = messages[messages.length - 1].content;
     

@@ -9,7 +9,7 @@ const { doubleBaziAnalysis } = require('../algorithms/bazi/match');
 const { fengshuiAnalysis: fengshuiAlgorithm } = require('../algorithms/fengshui');
 const { getRedis } = require('../config/redis');
 const { GAN_WUXING } = require('../algorithms/bazi/wuxing');
-const { getBeijingDateString } = require('../utils/date');
+const { fortuneDate, cacheTTL, CONSTELLATIONS, invalid } = require('../utils/fortuneInput');
 
 class FortuneService {
   // 八字算命
@@ -102,7 +102,7 @@ class FortuneService {
 
   // 获取每日运势
   async getDailyFortune(userId, date) {
-    const targetDate = date || getBeijingDateString();
+    const targetDate = fortuneDate(date);
     const redis = getRedis();
 
     // 拼装缓存 Key
@@ -148,9 +148,7 @@ class FortuneService {
     // 写入 Redis 缓存（缓存有效期设置为至北京时间当天 23:59:59 截止）
     if (redis && result) {
       try {
-        const [year, month, day] = targetDate.split('-').map(Number);
-        const beijingMidnightUtc = Date.UTC(year, month - 1, day, 15, 59, 59, 999);
-        const secondsUntilMidnight = Math.max(60, Math.floor((beijingMidnightUtc - Date.now()) / 1000));
+        const secondsUntilMidnight = cacheTTL(targetDate);
         await redis.set(cacheKey, JSON.stringify(result), 'EX', secondsUntilMidnight);
       } catch (err) {
         console.warn('Redis write failed in getDailyFortune:', err.message);
@@ -448,7 +446,8 @@ class FortuneService {
 
   // 星座运势
   async getConstellationFortune(userId, constellation, date) {
-    const targetDate = date || getBeijingDateString();
+    if (!CONSTELLATIONS.includes(constellation)) invalid('星座值无效');
+    const targetDate = fortuneDate(date);
     const redis = getRedis();
     const cacheKey = `constellation_fortune:${constellation}:${targetDate}`;
 
@@ -514,9 +513,7 @@ class FortuneService {
     // 写入 Redis 缓存（缓存有效期至北京时间当天 23:59:59 截止）
     if (redis) {
       try {
-        const [year, month, day] = targetDate.split('-').map(Number);
-        const beijingMidnightUtc = Date.UTC(year, month - 1, day, 15, 59, 59, 999);
-        const secondsUntilMidnight = Math.max(60, Math.floor((beijingMidnightUtc - Date.now()) / 1000));
+        const secondsUntilMidnight = cacheTTL(targetDate);
         await redis.set(cacheKey, JSON.stringify(result), 'EX', secondsUntilMidnight);
       } catch (err) {
         console.warn('Redis write failed in getConstellationFortune:', err.message);
@@ -529,51 +526,12 @@ class FortuneService {
   async _rewardPetFood(userId, itemType = 'coarseGrass', count = 1) {
     try {
       const Pet = require('../models/Pet');
-      let pet = await Pet.findOne({ userId });
-      if (!pet) {
-        const User = require('../models/User');
-        const user = await User.findById(userId);
-        const solarDate = user && user.birthInfo && user.birthInfo.solarDate;
-        
-        let type = 'egg';
-        if (solarDate) {
-          try {
-            const date = new Date(solarDate);
-            if (!isNaN(date.getTime())) {
-              const month = date.getMonth() + 1;
-              const day = date.getDate();
-              const val = month + day / 100;
-              const qilinDays = [2.04, 3.20, 5.05, 6.21, 8.07, 9.22, 11.07, 12.22];
-              if (qilinDays.includes(val)) {
-                type = 'qilin';
-              } else if (val >= 3.20 && val <= 6.20) {
-                type = 'qinglong';
-              } else if (val >= 6.21 && val <= 9.21) {
-                type = 'zhuque';
-              } else if (val >= 9.22 && val <= 12.21) {
-                type = 'baihu';
-              } else {
-                type = 'xuanwu';
-              }
-            }
-          } catch (err) {}
-        }
-        
-        const names = { egg: '神秘星运蛋', qinglong: '东方青龙', zhuque: '南方朱雀', baihu: '西方白虎', xuanwu: '北方玄武', qilin: '祥瑞麒麟' };
-        pet = new Pet({
-          userId,
-          type,
-          name: names[type] || '神秘星运蛋',
-          inventory: {
-            coarseGrass: 1,
-            morningDew: 0,
-            wuguPill: 0,
-            taijiPeach: 0
-          }
-        });
+      const { ensurePet } = require('./petService');
+      if (!await Pet.findOne({ userId })) {
+        const user = await require('../models/User').findById(userId);
+        await ensurePet(userId, user && user.birthInfo && user.birthInfo.solarDate);
       }
-      pet.inventory[itemType] = (pet.inventory[itemType] || 0) + count;
-      await pet.save();
+      await Pet.findOneAndUpdate({ userId }, { $inc: { [`inventory.${itemType}`]: count, __v: 1 } }, { new: true });
     } catch (e) {
       console.warn('赠送神兽饲料失败:', e.message);
     }

@@ -6,8 +6,7 @@
 
 - 微信小程序登录
 - 八字算命、星座运势、塔罗牌占卜、姓名测算、风水分析
-- 微信支付对接
-- VIP 会员系统
+- 神兽养成（签到、喂食、互动和福袋）
 - 每日运势推送
 
 ## 快速开始
@@ -43,7 +42,7 @@ npm run dev
 npm start
 ```
 
-### 使用 PM2 启动（推荐）
+### 使用 PM2 启动（宿主机部署，需预装 PM2）
 
 ```bash
 npm run pm2:start
@@ -79,30 +78,32 @@ server/
 
 ### 用户相关
 
-- `POST /api/user/wx-login` - 微信登录
-- `GET /api/user/info` - 获取用户信息
-- `PUT /api/user/info` - 更新用户信息
+- `POST /api/user/login` - 微信登录
+- `POST /api/user/register`、`POST /api/user/login-account` - H5 账号注册/登录
+- `GET /api/user/profile` - 获取用户信息
+- `PUT /api/user/profile` - 更新用户信息
+- `POST /api/user/check-in` - 签到；奖励确认失败时返回 503，重新签到可补发
 
 ### 算命相关
 
 - `POST /api/fortune/bazi` - 八字算命
-- `GET /api/fortune/constellation/:sign` - 星座运势
+- `GET /api/fortune/constellation/:constellation` - 星座运势
 - `POST /api/fortune/tarot` - 塔罗牌占卜
 - `POST /api/fortune/name` - 姓名测算
 - `POST /api/fortune/fengshui` - 风水分析
 - `GET /api/fortune/daily` - 每日运势
 
-### 支付相关
+当前 `src/app.js` 挂载 user、fortune、push、pet、admin 路由和 `/api/config`；支付和 VIP 会员接口尚未实现。
 
-- `POST /api/payment/create` - 创建订单
-- `GET /api/payment/order/:orderNo` - 查询订单
-- `POST /api/payment/wechat/notify` - 微信支付回调
+### 密码与令牌迁移
 
-### 会员相关
+新密码以独立随机盐异步 scrypt 存储，格式为 `scrypt$16384$8$1$salt$hash`，只接受这一固定成本格式；旧 SHA-256 仅在密码验证成功后升级，不批量重置账号。
 
-- `GET /api/member/info` - 会员信息
-- `GET /api/member/quota` - 检查次数
-- `GET /api/member/benefits` - 会员权益
+新 JWT 固定 HS256，默认 issuer 为 `fortune-miniprogram`、audience 为 `fortune-client`。已有实例保留 `JWT_SECRET`。若要让无 claims 的旧 token 暂时可用，在发布前由维护者设置 `JWT_LEGACY_ACCEPT_UNTIL` 为明确 UTC 截止日；空值、无效值或到期立即拒绝旧 token，前端使用已有 401 恢复流程。旧 token 自身仍须未过期；错误 issuer/audience 或非 HS256 始终拒绝。改变 issuer/audience 同样会使已有新 token 失效，部署期间保持一致。
+
+签到按北京零点原子认领。`User.checkInRewardPending` 保存待发日期，Pet 以日期标记和 `$inc` 幂等补发，失败返回明确 503，用户再次签到会先恢复未完成日期。所有 Pet 状态写入使用版本条件原子更新，库存和福袋消耗同时检查余额，冲突最多尝试 10 次后返回 409；可重新请求。部署需核验现有 `Pet.userId` 唯一索引，并让所有写入实例同时使用新版本，避免旧 save 写法绕过版本条件。
+
+AI 客户端消息只允许 user/assistant，1..50 条，单条 1..4000 字符、总量不超过 20000；工具参数按既有历法/时辰/性别/牌阵校验。运势日期须为真实 YYYY-MM-DD，限今天前后 31 天；星座固定 12 项，缓存 TTL 为 60..86400 秒。
 
 ## 部署说明
 
@@ -120,7 +121,7 @@ Node / PM2 默认仅监听 `127.0.0.1`。Docker 模板在容器内设置 `BIND_H
 
 ## 注意事项
 
-1. 微信支付需要配置证书文件
+1. 支付和 VIP 尚未实现，不能把支付环境配置视为业务接口已上线
 2. 新部署设置足够长的随机 JWT 密钥；已有实例保留现有值，本次不轮换
 3. 建议开启 Redis 集群提高可用性
 4. 定期备份 MongoDB 数据

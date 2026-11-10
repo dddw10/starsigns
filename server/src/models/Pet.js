@@ -57,6 +57,8 @@ const petSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // 与 User 的待发签到日期配合，使部分失败后的补发幂等。
+    lastCheckInRewardDay: { type: String, default: '' },
     // 今日抚摸互动次数
     dailyInteractCount: {
       type: Number,

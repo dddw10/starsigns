@@ -115,6 +115,7 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    checkInRewardPending: { type: String, default: '' },
 
     // 注册时间
     createdAt: {
@@ -128,10 +129,7 @@ const userSchema = new mongoose.Schema(
 );
 
 // 索引
-userSchema.index({ openid: 1 }, { sparse: true });
-userSchema.index({ unionid: 1 });
 userSchema.index({ phone: 1 });
-userSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 const User = mongoose.model('User', userSchema);
 

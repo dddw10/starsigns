@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { hashPassword, verifyPassword } = require('../utils/password');
 const User = require('../models/User');
 const Feedback = require('../models/Feedback');
 const wechatConfig = require('../config/wechat');
@@ -173,52 +174,43 @@ class UserService {
   }
 
   async checkIn(userId) {
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('用户不存在');
-    }
-
-    // 签到跨天一律按北京时间判定，跟服务器时区无关
-    const todayStr = getBeijingDateString();
-    const lastCheckInStr = user.lastCheckInAt ? getBeijingDateString(user.lastCheckInAt) : '';
-
-    if (todayStr === lastCheckInStr) {
-      throw new Error('您今天已经签到过了哦，明天再来吧！');
-    }
-
-    user.lastCheckInAt = new Date();
-    await user.save();
-
-    // 签到赠送神兽琼浆饲料
-    let petRewardMessage = '';
-    try {
-      const Pet = require('../models/Pet');
-      let pet = await Pet.findOne({ userId });
-      if (!pet) {
-        pet = new Pet({
-          userId,
-          type: 'egg',
-          name: '神秘星运蛋',
-          inventory: {
-            coarseGrass: 1,
-            morningDew: 1,
-            wuguPill: 0,
-            taijiPeach: 0
-          }
-        });
-      } else {
-        pet.inventory.morningDew += 1;
+    const { rewardCheckIn } = require('./petService');
+    const now = new Date();
+    const today = getBeijingDateString(now);
+    let user = await User.findById(userId);
+    if (!user) throw new Error('用户不存在');
+    const deliver = async day => {
+      try {
+        await rewardCheckIn(userId, day);
+        await User.findOneAndUpdate({ _id: userId, checkInRewardPending: day },
+          { $set: { checkInRewardPending: '' } }, { new: true });
+      } catch (cause) {
+        const error = new Error('签到奖励暂未确认，请稍后重新签到补发');
+        error.status = 503;
+        error.expose = true;
+        throw error;
       }
-      await pet.save();
-      petRewardMessage = '，并为您的神兽带回了 1 滴晨露琼浆';
-    } catch (e) {
-      console.warn('签到赠送神兽琼浆失败:', e.message);
-    }
-
-    return {
-      lastCheckInAt: user.lastCheckInAt,
-      petRewardMessage,
     };
+    // 先恢复已认领的日期，再允许下一天认领；Pet 日期标记保证补发只加一次。
+    const pending = user.checkInRewardPending;
+    if (pending) await deliver(pending);
+    if (pending !== today) {
+      const start = new Date(`${today}T00:00:00+08:00`);
+      user = await User.findOneAndUpdate({ _id: userId, checkInRewardPending: { $in: ['', null] },
+        $or: [{ lastCheckInAt: null }, { lastCheckInAt: { $lt: start } }] },
+      { $set: { lastCheckInAt: now, checkInRewardPending: today } }, { new: true });
+      if (!user) {
+        const latest = await User.findById(userId);
+        const completed = latest && !latest.checkInRewardPending && latest.lastCheckInAt
+          && getBeijingDateString(latest.lastCheckInAt) === today;
+        const error = new Error(completed ? '您今天已经签到过了哦，明天再来吧！' : '签到状态正在更新，请稍后重试');
+        error.status = completed ? 400 : 409;
+        throw error;
+      }
+      await deliver(today);
+    }
+    return { lastCheckInAt: user.lastCheckInAt,
+      petRewardMessage: '，并为您的神兽带回了 1 滴晨露琼浆' };
   }
 
   // 微信凭证是否齐全。AppID 和 AppSecret 少一个 jscode2session 都换不出 openid
@@ -410,10 +402,10 @@ class UserService {
   }
 
   async register(username, password) {
-    if (!username || !username.trim()) {
+    if (typeof username !== 'string' || !username.trim() || username.length > 32) {
       throw new Error('用户名不能为空');
     }
-    if (!password || password.length < 6) {
+    if (typeof password !== 'string' || password.length < 6 || password.length > 64) {
       throw new Error('密码长度不能少于 6 位');
     }
 
@@ -422,8 +414,7 @@ class UserService {
       throw new Error('该账号已被注册');
     }
 
-    const crypto = require('crypto');
-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
+    const hashedPassword = await hashPassword(password);
 
     const openid = `h5_openid_${username.trim()}_${Math.random().toString(36).substring(2, 8)}`;
     const user = await User.create({
@@ -438,10 +429,10 @@ class UserService {
   }
 
   async loginAccount(username, password) {
-    if (!username || !username.trim()) {
+    if (typeof username !== 'string' || !username.trim() || username.length > 32) {
       throw new Error('用户名不能为空');
     }
-    if (!password) {
+    if (typeof password !== 'string' || !password || password.length > 64) {
       throw new Error('密码不能为空');
     }
 
@@ -450,13 +441,11 @@ class UserService {
       throw new Error('账号或密码错误');
     }
 
-    const crypto = require('crypto');
-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
-
-    if (user.password !== hashedPassword) {
+    if (!await verifyPassword(password, user.password)) {
       throw new Error('账号或密码错误');
     }
 
+    if (/^[0-9a-f]{64}$/.test(user.password)) user.password = await hashPassword(password);
     user.authSource = 'account';
     user.lastLoginAt = new Date();
     await user.save();

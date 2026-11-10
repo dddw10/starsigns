@@ -1,5 +1,6 @@
 const aiService = require('../services/aiService');
 const multiAgentService = require('../services/multiAgentService');
+const { validateAIInput } = require('../utils/aiInput');
 const publicError = '推演暂时无法完成，请稍后重试';
 
 async function respond(req, res, next, council) {
@@ -17,9 +18,8 @@ async function respond(req, res, next, council) {
   try {
     if (req.aborted || res.destroyed) { abort(); return; }
     const { messages, birthInfo, gender, stream: requested } = req.body;
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ code: 400, message: 'messages 必填且必须为非空数组' });
-    }
+    try { validateAIInput(req.body); }
+    catch (error) { return res.status(400).json({ code: 400, message: error.message }); }
     const params = { messages, birthInfo, gender, userId: req.user?.userId || null, signal };
     if (requested === false) {
       const data = council
