@@ -36,8 +36,9 @@ class PushService {
     try { indexes = await PushSubscription.collection.indexes(); }
     catch (error) { if (error.code !== 26) throw error; }
     if (!PushSubscription.hasUniqueSubscriptionIndex(indexes)) {
-      const error = httpError('推送订阅尚未完成唯一索引迁移；请暂停写入及发送，运行 scripts/migrate-push-subscriptions.js 预览并按运行说明处理', 503, true);
+      const error = httpError('提醒服务暂时不可用，请稍后重试', 503, true);
       error.code = 'PUSH_MIGRATION_REQUIRED';
+      error.operationalMessage = '推送订阅尚未完成唯一索引迁移；请暂停写入及发送，运行 scripts/migrate-push-subscriptions.js 预览并按运行说明处理';
       throw error;
     }
   }

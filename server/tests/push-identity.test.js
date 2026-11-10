@@ -99,3 +99,22 @@ test('a stale subscription openid cannot route a message to another identity', a
   expect(stats).toMatchObject({ success: 0, skipped: 1 });
   expect(messages).toEqual([]);
 });
+
+test.each(['missing collection', 'missing unique index'])('%s refuses subscriptions with a user-facing message and retains operational detail', async cause => {
+  Object.assign(user, { authSource: 'wechat', openid: 'real-wechat-openid' });
+  if (cause === 'missing collection') {
+    PushSubscription.collection.indexes.mockRejectedValue(Object.assign(new Error('NamespaceNotFound'), { code: 26 }));
+  } else {
+    PushSubscription.collection.indexes.mockResolvedValue([{ name: '_id_', key: { _id: 1 } }]);
+  }
+  const expected = { status: 503, code: 'PUSH_MIGRATION_REQUIRED', expose: true,
+    message: '提醒服务暂时不可用，请稍后重试' };
+  for (const operation of [() => pushService.subscribe(user._id, 'fake-template'), () => pushService.triggerDailyPush()]) {
+    const error = await operation().catch(error => error);
+    expect(error).toMatchObject(expected);
+    expect(error.message).not.toMatch(/索引|迁移|scripts\//);
+    expect(error.operationalMessage).toContain('scripts/migrate-push-subscriptions.js');
+  }
+  expect(PushSubscription.findOneAndUpdate).not.toHaveBeenCalled();
+  expect(messages).toEqual([]);
+});
