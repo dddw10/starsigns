@@ -6,7 +6,7 @@
 
 应用 JWT 过渡与数据库账户迁移分别核验。已有 `JWT_SECRET` 不轮换；维护者在应用发布前明确决定是否设置 `JWT_LEGACY_ACCEPT_UNTIL`（UTC 截止日）。空值立即拒绝旧无 issuer/audience token，配置只兼容未过期 HS256；错误 claims 不放行。issuer/audience 在所有实例保持一致。密码在成功登录后按需升级，不执行批量数据迁移。Pet 更新依赖现有 `userId` 唯一索引；切换时停止旧版写入实例，再启动新版本，随后验证并发签到、饲料消耗和 503 补发路径。
 
-上线前只读检查 User 的 `openid_1`、`username_1` 均为 unique+sparse、`unionid_1` 为 sparse，以及 Pet 的 `userId_1` 为 unique。模型已移除重复声明，不会自动删除或重建线上索引；若现有约束不一致，先检查重复值并单独预览索引迁移，再由维护者安排执行。新建隔离库的索引验收不代表现有业务库已修复。
+上线前只读检查 User 的 `openid_1`、`username_1` 均为 unique+sparse、`unionid_1` 为 sparse，以及 Pet 的 `userId_1` 为 unique。还须检查 PushSubscription 的 `{ userId: 1, templateId: 1 }` 为全量、非 sparse、非 partial 的唯一索引；即使当前订阅记录为零，也必须先按 [推送订阅迁移说明](push-subscription-migration.md) 做停写预览、备份和显式迁移，否则新版本会拒绝订阅与发送。模型不会自动建立此约束，也不会自动删除或重建线上索引；若现有约束不一致，先检查重复值并单独预览索引迁移，再由维护者安排执行。新建隔离库的索引验收不代表现有业务库已修复。
 
 ## 先确认运行中的配置
 
